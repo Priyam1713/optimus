@@ -105,6 +105,18 @@ def preflight(args: argparse.Namespace) -> list[str]:
         ["docker", "info"], capture_output=True, check=False
     ).returncode != 0:
         problems.append("docker is not reachable; start it and retry")
+    elif subprocess.run(
+        ["docker", "pull", "-q", "hello-world"], capture_output=True, check=False
+    ).returncode != 0:
+        # Warned about, not refused: a cached image set can still run offline,
+        # and refusing would be wrong. But finding out four hours in that eight
+        # trials could not pull their images is worse than being told now.
+        problems.append(
+            "docker cannot reach the registry. Any task whose image is not "
+            "already cached will fail to build - a transient DNS failure cost "
+            "8 of 10 trials in one run. Pre-pull the images, or accept that "
+            "only cached tasks will run."
+        )
 
     return problems
 
@@ -138,6 +150,12 @@ def main() -> int:
                         help="stretch Harbor's per-task timeouts. Local models "
                              "need this: a 9B doing 30 turns takes far longer "
                              "than a hosted model doing the same work.")
+    parser.add_argument("--max-retries", type=int, default=2,
+                        help="retries per trial. Defaults to 2 because a trial "
+                             "can fail before the agent is ever reached: a "
+                             "transient DNS failure pulling a task image cost "
+                             "8 of 10 trials in one run, and Harbor's default "
+                             "of 0 meant none of them was retried.")
     parser.add_argument("--max-wall-s", type=float, default=0.0,
                         help="the loop's own ceiling. Keep it under Harbor's "
                              "agent timeout so the loop stops itself and writes "
@@ -205,6 +223,8 @@ def main() -> int:
     ]
     if args.timeout_multiplier != 1.0:
         command += ["--timeout-multiplier", str(args.timeout_multiplier)]
+    if args.max_retries:
+        command += ["--max-retries", str(args.max_retries)]
     if args.max_wall_s:
         command += ["--ae", f"OPTIMUS_MAX_WALL_S={args.max_wall_s}"]
     if args.allow_remote:

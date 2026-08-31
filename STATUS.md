@@ -448,6 +448,26 @@ row, and it is the one nobody else on the board can print.
    Declaring the stronger type would have put inverse rows in the ledger that
    nothing could ever apply.
 
+23. **M3-18 — the first 10-task run lost 8 trials to DNS, and nothing retried
+    them.** Not a harness defect, and worth recording precisely because of
+    that. Eight of ten tasks needed container images that were not yet cached,
+    Docker could not resolve `registry-1.docker.io`, and their environments
+    never built — so the agent was never reached. Harbor's default of
+    `--max-retries 0` meant every one of them logged *"Not retrying trial
+    because the maximum number of retries has been reached"* and stopped.
+
+    Two things now guard it: `bench.py` defaults to 2 retries, and its
+    preflight pings the registry and says plainly that uncached tasks will fail
+    — warned about rather than refused, because a fully cached image set can
+    legitimately run offline.
+
+    The part that worked is the part worth keeping: `optimus report` refused to
+    average over the survivors. It printed *"8 trial(s) have no Optimus
+    receipt; token figures below cover only the rest"* rather than presenting a
+    79.3% cache-hit rate measured on 2 trials as though it covered 10. That
+    guard was written two days earlier for exactly this shape of situation and
+    this is the first time it fired on real data.
+
 ### Measured (mechanism, not benchmark)
 
 150-turn synthetic trajectory, 32K window:
