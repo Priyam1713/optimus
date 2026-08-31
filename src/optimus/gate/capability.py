@@ -14,14 +14,21 @@ should never be made loosely:**
   instead, so a create cannot be redirected by swapping a directory underneath.
 * Containment is re-verified at open time, not trusted from resolve time.
 * On POSIX, `O_NOFOLLOW` additionally refuses to open a symlink at all.
+* **On Windows, the same and better** — see `winfile.py`. The file is opened
+  with `FILE_FLAG_OPEN_REPARSE_POINT`, which is the `O_NOFOLLOW` equivalent, and
+  then identity *and* containment are verified on the **handle** rather than on
+  the path. Once the handle is held the name cannot be re-pointed underneath it,
+  so the object checked is necessarily the object read.
 
-**What remains open, honestly:** on Windows there is no `dir_fd` and no
-`O_NOFOLLOW`, so between the identity check and the `open()` there is a window of
-a few microseconds. Closing it fully needs `NtCreateFile` with
-`FILE_OPEN_REPARSE_POINT` through a native module — a real M7 item, not something
-to pretend is done. On POSIX the check-then-open is still not atomic either;
-`dir_fd`-relative opens are the fix and are available where `os.supports_dir_fd`
-says so.
+**What remains open, honestly:** an *intermediate* directory replaced between
+the resolve and the open is still not caught on either platform. `O_NOFOLLOW`
+only ever applied to the final component, and the Windows path has the same
+shape; closing it needs component-by-component relative opens (`dir_fd` /
+`openat` on POSIX, `NtCreateFile` with `OBJECT_ATTRIBUTES.RootDirectory` on
+Windows). What bounds it now is that Windows reports where the handle actually
+landed, so a redirected open is refused after the fact rather than honoured —
+nothing is read through it, and a create that lands wrong is removed again.
+POSIX does not yet do that much and should.
 """
 
 from __future__ import annotations
@@ -30,6 +37,7 @@ import os
 from dataclasses import dataclass
 from typing import BinaryIO
 
+from . import winfile
 from .targets import ArgvTarget, FsTarget, TargetRefused, _is_within, _norm, identity_of
 
 _BINARY = getattr(os, "O_BINARY", 0)
@@ -75,13 +83,43 @@ class FileCapability:
                     f"the directory holding {self.path} was replaced after authorisation"
                 )
 
+    def _contains(self, real_path: str) -> bool:
+        """Is the place a handle actually landed inside the workspace?"""
+        return _is_within(_norm(real_path), self.target.workspace)
+
     def open_read(self) -> BinaryIO:
         self._verify()
+        if winfile.available():
+            fd = winfile.open_nofollow(
+                self.path, write=False,
+                expect_identity=self.target.identity if self.target.exists else None,
+                contains=self._contains,
+            )
+            return os.fdopen(fd, "rb")
         fd = os.open(self.path, os.O_RDONLY | _BINARY | _NOFOLLOW)
         return os.fdopen(fd, "rb")
 
     def open_write(self, *, truncate: bool = True) -> BinaryIO:
         self._verify()
+        if winfile.available():
+            # Windows has no O_NOFOLLOW and no O_TRUNC that can be combined with
+            # it, so the sequence is deliberately open -> verify -> truncate. A
+            # truncating *create* would destroy the contents before anything had
+            # been checked, which on a redirected path means destroying the
+            # wrong file and only then noticing.
+            fd = winfile.open_nofollow(
+                self.path, write=True,
+                create_new=not self.target.exists,
+                expect_identity=self.target.identity if self.target.exists else None,
+                contains=self._contains,
+            )
+            if truncate:
+                os.ftruncate(fd, 0)
+                os.lseek(fd, 0, os.SEEK_SET)
+            else:
+                os.lseek(fd, 0, os.SEEK_END)
+            return os.fdopen(fd, "wb")
+
         flags = os.O_WRONLY | os.O_CREAT | _BINARY | _NOFOLLOW
         flags |= os.O_TRUNC if truncate else os.O_APPEND
         if not self.target.exists:

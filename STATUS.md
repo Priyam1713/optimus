@@ -9,7 +9,7 @@ Design: [research.md](docs/research.md) (field) → [audit.md](docs/audit.md) (p
 
 ```bash
 .venv/Scripts/python.exe -m pip install -e ".[loop,harbor]"
-.venv/Scripts/python.exe -m pytest -q          # 381 passed, 2 skipped
+.venv/Scripts/python.exe -m pytest -q          # 398 passed, 3 skipped
 .venv/Scripts/python.exe scripts/context_profile.py
 .venv/Scripts/python.exe scripts/m3_demo.py    # the whole path, end to end
 optimus status --ledger state/ledger.db
@@ -48,28 +48,37 @@ optimus report jobs/<job-id>
 
 ## Not built yet
 
-- **No Terminal-Bench score, and the reason has finally changed.** Ten runs
-  against the real dataset in real Docker containers. The first nine each died
-  on a harness defect — hosted quota, an expired envelope, Harbor's agent
-  timeout, then four separate context-accounting bugs (M3-13 to M3-16: one
-  number, four wrong answers, each correct in a different layer's units).
+- **There is now a score, and it is a 10-task one.** See
+  [§ the ten-task run](#the-ten-task-run). `solved=3/10`, `pass@1 = 0.300`, ten
+  trials, **zero harness errors and zero retries**. That is a real row and it
+  should be described exactly that way: ten of the eighty-nine tasks, `k=1`,
+  one local 9B. It is **not** a Terminal-Bench 2.0 board number and must not be
+  quoted as one.
+- **`tokens_per_solved_task` is finally finite, and it is bad.** 1,297,286.
+  [apex.md](docs/apex.md) §4 targets *within 2× of Goose's 28–37K*, so this is
+  roughly **18× over the ceiling** it set. The debt named in §4 is no longer
+  unmeasurable; it is measured, and it is missed. See the run section for the
+  single biggest reason, which is a harness problem rather than a model one.
+- **The nine earlier runs each died on a harness defect** — hosted quota, an
+  expired envelope, Harbor's agent timeout, then four separate
+  context-accounting bugs (M3-13 to M3-16: one number, four wrong answers, each
+  correct in a different layer's units).
 
-  The tenth ran to completion: **40 turns, 32 of 40 gated actions settled OK,
+  The tenth of those ran to completion: **40 turns, 32 of 40 gated actions settled OK,
   40 envelope uses, 3 compactions, 0 provider errors, 0 no-action turns, peak
   prompt 26,888 against a 28,672 allowance, 23 minutes, $0.00.** Its ledger
   verifies `VALID` against an out-of-band owner fingerprint across 171 rows.
 
-  It still scored `reward: 0.0` — `qwen35-9b` did not solve `gpt2-codegolf`.
-  That is the first failure in this project attributable to **model capability
-  rather than to the harness**, which is the line M3 had to cross. What does
-  not yet exist is a *score*: one unsolved task on one model is not a
-  benchmark row, and `tokens_per_solved_task` is still `inf` because nothing
-  has been solved.
-- **617K tokens for one unsolved 40-turn task.** 79.7% of it cache hits, which
-  is the only reason it is affordable at all, and free because it is local. But
-  [apex.md](docs/apex.md) §4 targets *within 2× of Goose's 28-37K per solved task*,
-  and there is no honest way to compare an unsolved run to that. The next real
-  economy question is per-turn growth, and it is M4 work.
+  It still scored `reward: 0.0` — `qwen35-9b` did not solve `gpt2-codegolf`,
+  and did not solve it again in the ten-task run either. That was the first
+  failure in this project attributable to **model capability rather than to the
+  harness**, which is the line M3 had to cross before a score could mean
+  anything.
+- **The economy is the worst number here.** 1.3M tokens per solved task against
+  a 28–37K target, 89.9% of it cache hits. The largest single cause is known and
+  fixable: every solved task ran to the 40-turn ceiling because the model never
+  called `finish`, so a task that was done at turn 12 was billed for 40. Fixing
+  that is worth more than any routing or compaction work currently on the list.
 - **Concurrency is untested against a real provider.** Every run so far has been
   one or two trials. `-n 4` and above will interact with rate limits in ways the
   backoff has not been exercised against.
@@ -102,11 +111,13 @@ optimus report jobs/<job-id>
   a frontend would consume and any AG-UI client already can.
 - No skills/Descent, no OS plane. M5 needs a task that gets solved before
   "cost falls across runs" can be measured at all.
-- **Residual TOCTOU on Windows.** File identity is pinned at resolve and
-  re-checked at open, and POSIX adds `O_NOFOLLOW` — but Windows has no `dir_fd`
-  and no `O_NOFOLLOW`, so a microsecond window remains between the check and the
-  open. Closing it needs `NtCreateFile` with `FILE_OPEN_REPARSE_POINT` through a
-  native module. M7, and not pretended to be done.
+- **Residual TOCTOU: now POSIX is the weaker platform.** The Windows window is
+  closed — see [§ M7](#m7--the-windows-check-then-open-window-closed) — by
+  opening with `FILE_FLAG_OPEN_REPARSE_POINT` and verifying identity *and*
+  containment on the handle rather than on the path. What is still open on
+  **both** platforms is an intermediate directory swapped mid-window; Windows
+  now catches it after the fact, and POSIX does not catch it at all. Bringing
+  POSIX up to match, with `dir_fd`-relative opens, is the next piece.
 - Compensation covers file writes and deletes. Registry, process and app-state
   inverses arrive with the OS plane; `capture()` returns `None` for them rather
   than recording a row that cannot be applied.
@@ -536,6 +547,129 @@ corrected, and the shape of the published row is real. **The pass rate is
 meaningless — one scripted trial.** Replace the model and the dataset and the
 same code prints the row that counts.
 
+## The ten-task run
+
+Ten Terminal-Bench 2.0 tasks, `qwen35-9b` locally, one attempt each, 40 turns,
+serial. The run the whole of M3 was building toward.
+
+```
+tasks=10  trials=10  solved=3
+  pass@k k=1: 0.300
+  pass^k k=1: 0.300
+  tokens/solved-task      1,297,286
+  cost/solved-task        $0.0000
+  no-action turns/task    1.40
+  cache hit rate          89.9%
+  unsafe attempts refused 0
+  operator interventions  0
+```
+
+**Zero errored trials and zero retries.** The previous attempt lost 8 of 10 to a
+transient DNS failure pulling images (M3-18); the retry defence and the registry
+preflight held, and were not even needed. That was the result this run was
+bought to get, and the three solved tasks were not expected at all — every
+document in this repo, including this one, predicted `solved=0`.
+
+| task | stopped | turns | tokens | ok/act | solved |
+|---|---|---|---|---|---|
+| largest-eigenval | max_turns | 40 | 396,495 | 37/38 | **yes** |
+| log-summary-date-ranges | max_turns | 40 | 430,650 | 40/40 | **yes** |
+| pytorch-model-cli | max_turns | 40 | 371,262 | 32/41 | **yes** |
+| break-filter-js-from-html | finished | 19 | 60,064 | 18/18 | no |
+| write-compressor | stalled | 16 | 252,585 | 9/9 | no |
+| gpt2-codegolf | max_turns | 40 | 583,897 | 29/33 | no |
+| llm-inference-batching-scheduler | max_turns | 40 | 674,261 | 32/36 | no |
+| merge-diff-arc-agi-task | max_turns | 40 | 363,476 | 32/41 | no |
+| reshard-c4-data | max_turns | 40 | 425,222 | 36/40 | no |
+| winning-avg-corewars | max_turns | 40 | 333,945 | 39/41 | no |
+
+The three solved are the three smallest images in the set, which is the pattern
+one would want to see: a 9B solved the easy end and failed the hard end, rather
+than scoring somewhere inexplicable.
+
+### The finding that matters more than the score
+
+**All three solved tasks stopped at `max_turns`, not at `finished`.** The model
+solved the task and then kept going until the turn ceiling, because it never
+recognised it was done. Meanwhile the one run that *did* call `finish` —
+`break-filter-js-from-html`, at turn 19 — was wrong, and had not solved it.
+
+So the model's self-assessment is unreliable in both directions, and the
+harness currently pays for that in full: a solved task burns 40 turns instead of
+the dozen or so it actually needed. That is the single largest contributor to
+`tokens_per_solved_task` being 1.3M against a 28–37K target, and it is a
+*harness* problem, not a model-capability one — which makes it the first
+concrete, measured piece of the apex §4 debt that is actually actionable.
+
+### Integrity
+
+Each trial's ledger verifies `UNATTESTED`: chain intact, every signature valid,
+`failures=0`, across ~205 rows per trial. `UNATTESTED` rather than `VALID` is
+the *correct* state and not a defect — it means no owner checkpoint has been
+signed over the chain, and `attest` is deliberately the one operation the
+benchmark process cannot perform, because it is the only thing that touches an
+`OwnerKey`. An operator turns these into `VALID` with one command per trial.
+
+`unsafe attempts refused 0` and `operator interventions 0` across all ten: the
+grader tripwire never fired and no action was ever parked, so nothing in this
+run needed a human.
+
+## M7 — the Windows check-then-open window, closed
+
+Carried as a residual since M1: POSIX gets `O_NOFOLLOW`, Windows got nothing, so
+between the identity check and the `open()` a reparse point could be substituted
+and the open would follow it. `gate/winfile.py` closes it, and the design
+changed twice while reading the actual API contracts.
+
+**It does not use `NtCreateFile`, and that is the right call.** The roadmap said
+it would need "`NtCreateFile` with `FILE_OPEN_REPARSE_POINT` through a native
+module". But `CreateFileW` already takes `FILE_FLAG_OPEN_REPARSE_POINT`
+(0x00200000), documented as "normal reparse point processing will not occur" —
+the `O_NOFOLLOW` equivalent, on a supported API, reachable from `ctypes`. The
+`Nt*` family is the undocumented layer underneath; reaching for it when the
+documented call does the job trades a stability guarantee for nothing.
+
+**And the flag was not the important part.** The real fix is *where* the check
+happens. The old code verified identity on a **path** and then opened that path
+— two operations against a name something else can re-point in between. Now the
+file is opened first and verified **on the handle**: identity from
+`GetFileInformationByHandleEx`, real location from `GetFinalPathNameByHandleW`.
+Once the handle is held the name cannot be re-pointed underneath it, so the
+object checked is necessarily the object read. Open-then-verify closes what
+check-then-open leaves open.
+
+### Findings
+
+30. **M7-1 — the plausible identity field is the wrong one.**
+    `BY_HANDLE_FILE_INFORMATION.dwVolumeSerialNumber` is 32-bit and does **not**
+    equal `st_dev`; CPython takes `st_dev` from the 64-bit `FILE_ID_INFO`.
+    Measured on this host: 2,094,255,989 versus 14,302,539,503,512,047,477.
+    Comparing the obvious one would have refused every open of a perfectly
+    correct file — a security check that fails closed on everything is still a
+    broken check. This is M3-13..16 one layer down: two numbers that mean the
+    same thing in different units.
+
+31. **M7-2 — the first version of the security test proved nothing.** It put a
+    junction at the *final* component and asserted a refusal. Disabling the new
+    module showed the refusal happened anyway: the resolver catches a junction
+    that exists at resolve time, and a directory junction cannot be opened as a
+    file regardless. The test passed identically with and without the thing it
+    was testing. Rewriting it to force the swap *inside* the window, on an
+    intermediate directory, produced the real result: **without the module the
+    attack reads back a file from outside the workspace and is not refused at
+    all.** Every security test in this project should be run once with its
+    defence disabled, and this one is why.
+
+### What remains open
+
+An intermediate directory swapped mid-window is now **caught but not
+prevented** — the open succeeds and the containment check on the handle refuses
+it afterwards, so nothing is read and a bad create is removed. Preventing it
+needs component-by-component relative opens (`openat`;
+`OBJECT_ATTRIBUTES.RootDirectory`). POSIX has the same gap **and does not catch
+it**, which is now the weaker of the two platforms and should be brought up to
+match.
+
 ## M4 — surfaces, partial
 
 Everything M4 needs turned out to hang off one primitive the loop did not have:
@@ -556,7 +690,7 @@ projection of them.
 | Terminal view | `surface/tui.py` | ANSI, not `curses` — which is not in the Windows stdlib |
 | Pre-flight dry-run | `surface/dryrun.py` | runs against a *shadow* Gate, so a preview costs nothing |
 
-**381 tests, 2 skipped. Ruff clean.** `optimus acp` handshakes over real pipes:
+**398 tests, 3 skipped across the project. Ruff clean.** `optimus acp` handshakes over real pipes:
 `initialize` → `session/new` → a proper `-32601` for an unknown method.
 
 The bus mirror is the design decision worth defending. Publishing from
