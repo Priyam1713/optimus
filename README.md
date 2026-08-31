@@ -125,6 +125,7 @@ ticket is; the other measures whether you would put the thing in a pipeline.
 | [docs/research.md](docs/research.md) | The field survey the design is answering |
 | [docs/audit.md](docs/audit.md) | An unsparing audit of two predecessor systems, and what was salvaged |
 | [docs/architecture.md](docs/architecture.md) | The OS/desktop plane, attached at M6 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What is next, and what is deliberately deferred |
 
 ## Design invariants
 
