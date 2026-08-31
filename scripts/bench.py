@@ -20,7 +20,6 @@ control, and here that is the operator's own `state/owner.key`.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
@@ -63,6 +62,7 @@ def preflight(args: argparse.Namespace) -> list[str]:
         # late is a whole run: an expired envelope refused all 31 actions of a
         # real trial, correctly, after nine minutes of local inference.
         import json
+
         from optimus.gate.envelope import Envelope
         from optimus.ledger.chain import now_ms
 

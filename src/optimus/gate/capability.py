@@ -30,7 +30,7 @@ import os
 from dataclasses import dataclass
 from typing import BinaryIO
 
-from .targets import ArgvTarget, FsTarget, TargetRefused, identity_of, _is_within, _norm
+from .targets import ArgvTarget, FsTarget, TargetRefused, _is_within, _norm, identity_of
 
 _BINARY = getattr(os, "O_BINARY", 0)
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)

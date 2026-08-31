@@ -17,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from optimus.context import ContextBudget, ContextWindow, EpisodeKind  # noqa: E402
-from optimus.context.window import CompactionRefused  # noqa: E402
+from optimus.context import ContextBudget, ContextWindow, EpisodeKind
+from optimus.context.window import CompactionRefused
 
 TURNS = 150
 OBSERVATION = "tool result: " + "d" * 1_400   # a file read, a grep hit, a diff

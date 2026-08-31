@@ -21,11 +21,12 @@ checkable, and impossible to inject into. A CEL backend can be added behind
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
 
-from .types import Decision, RULE_DEFAULT_DENY, RULE_POLICY_ERROR, Verdict
+from .types import RULE_DEFAULT_DENY, RULE_POLICY_ERROR, Decision, Verdict
 
 
 class PolicyError(Exception):
@@ -55,9 +56,8 @@ def _glob(value: str, pattern: str) -> bool:
     p = pattern.lower().replace("\\", "/")
     if fnmatch.fnmatch(v, p):
         return True
-    if p.startswith("**/") and fnmatch.fnmatch(v, p[3:]):
-        return True
-    return False
+    # The second case above: a leading `**/` also matches at depth zero.
+    return p.startswith("**/") and fnmatch.fnmatch(v, p[3:])
 
 
 def _lookup(attrs: Mapping[str, Any], key: str) -> Any:

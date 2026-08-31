@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 from ..gate.capability import ArgvCapability, CapabilityViolation, FileCapability, capability_for
 from ..gate.gate import Gate

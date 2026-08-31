@@ -31,9 +31,10 @@ from __future__ import annotations
 import json
 import math
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 #: Filenames written by `adapters/harbor.py` and by Harbor itself.
 METRICS_FILE = "optimus-metrics.json"
@@ -379,7 +380,7 @@ class Report:
         tps = d["tokens_per_solved_task"]
         lines += [
             f"  tokens/solved-task      {'inf' if tps is None else f'{tps:,.0f}'}",
-            f"  cost/solved-task        "
+            "  cost/solved-task        "
             + ("inf" if d["cost_per_solved_task_usd"] is None
                else f"${d['cost_per_solved_task_usd']:,.4f}"),
             f"  no-action turns/task    {d['no_action_turns_per_task']:.2f}",

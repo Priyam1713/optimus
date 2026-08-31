@@ -1,6 +1,6 @@
 """The context plane: typed episodes, priority eviction, validated compaction."""
 
-from .episodes import Episode, EpisodeKind, TokenCounter, heuristic_tokens, PERMANENT, SALIENCE
+from .episodes import PERMANENT, SALIENCE, Episode, EpisodeKind, TokenCounter, heuristic_tokens
 from .window import (
     CompactionRefused,
     CompactionReport,
@@ -10,7 +10,15 @@ from .window import (
 )
 
 __all__ = [
-    "Episode", "EpisodeKind", "TokenCounter", "heuristic_tokens", "PERMANENT", "SALIENCE",
-    "CompactionRefused", "CompactionReport", "ContextBudget", "ContextWindow",
+    "PERMANENT",
+    "SALIENCE",
+    "CompactionRefused",
+    "CompactionReport",
+    "ContextBudget",
+    "ContextWindow",
+    "Episode",
+    "EpisodeKind",
+    "TokenCounter",
     "counting_summarizer",
+    "heuristic_tokens",
 ]

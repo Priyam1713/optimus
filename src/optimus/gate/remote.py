@@ -48,9 +48,10 @@ both planes instead of two that drift.
 from __future__ import annotations
 
 import posixpath
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any, Sequence
+from typing import Any
 
 from .targets import ResolvedTarget, TargetRefused
 from .types import CapabilityRequest, Verb

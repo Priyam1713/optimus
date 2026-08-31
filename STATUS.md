@@ -1,11 +1,11 @@
 # Status
 
 Honest inventory. Modelled on Achilles's `IMPLEMENTATION_STATUS.md`, which was the
-best documentation practice in either predecessor ([audit.md](audit.md) §3.7):
+best documentation practice in either predecessor ([audit.md](docs/audit.md) §3.7):
 this file says what exists, and leads with what does not.
 
-Design: [research.md](research.md) (field) → [audit.md](audit.md) (predecessors) →
-**[apex.md](apex.md) (architecture)** → [architecture.md](architecture.md) (OS plane, M6).
+Design: [research.md](docs/research.md) (field) → [audit.md](docs/audit.md) (predecessors) →
+**[apex.md](docs/apex.md) (architecture)** → [architecture.md](docs/architecture.md) (OS plane, M6).
 
 ```bash
 .venv/Scripts/python.exe -m pip install -e ".[loop,harbor]"
@@ -67,7 +67,7 @@ optimus report jobs/<job-id>
   has been solved.
 - **617K tokens for one unsolved 40-turn task.** 79.7% of it cache hits, which
   is the only reason it is affordable at all, and free because it is local. But
-  [apex.md](apex.md) §4 targets *within 2× of Goose's 28-37K per solved task*,
+  [apex.md](docs/apex.md) §4 targets *within 2× of Goose's 28-37K per solved task*,
   and there is no honest way to compare an unsolved run to that. The next real
   economy question is per-turn growth, and it is M4 work.
 - **Concurrency is untested against a real provider.** Every run so far has been
@@ -185,7 +185,7 @@ human who is not there. Three easy answers were available — a `--yolo` flag, a
 `auto_approve` callback, or letting the adapter mint its own assent — and all
 three are the same bug: the process that wants the authorisation grants it, so
 the receipt proves nothing. That is precisely Bellona's failure
-([audit.md](audit.md) §2.6).
+([audit.md](docs/audit.md) §2.6).
 
 What ships instead is a document the Gate can only *verify*: signed by the owner
 key that lives outside every process the Gate can reach, naming one actor, one
@@ -205,7 +205,7 @@ row, and it is the one nobody else on the board can print.
    `security_risk(action) -> SecurityRisk` returns a *level*; a
    `ConfirmationPolicy` decides whether to prompt, and `NeverConfirm` ships.
    Nothing in that path resolves a target or constrains what the executor then
-   receives. [apex.md](apex.md) §1.3 called it "the Gate's socket" — it is *a*
+   receives. [apex.md](docs/apex.md) §1.3 called it "the Gate's socket" — it is *a*
    socket, for confirmation UX and event history, and enforcement has to live in
    a `GatedExecutor` that only runs on a handle.
 
@@ -460,7 +460,7 @@ row, and it is the one nobody else on the board can print.
 at 27,887 against unbounded growth, so the gap widens with run length rather than
 staying constant. This says nothing about pass rates. Real
 tokens-per-solved-task comes from Harbor, and the target from
-[apex.md](apex.md) §4 stands: within 2× of Goose's 28–37K at ≥ its pass rate.
+[apex.md](docs/apex.md) §4 stands: within 2× of Goose's 28–37K at ≥ its pass rate.
 
 ### The first complete Terminal-Bench trial
 
@@ -513,5 +513,5 @@ same code prints the row that counts.
 M4: surfaces. TUI and web over the REST/WS core, priority-queue steering,
 confidence signalling, pre-flight dry-run, ACP client, AG-UI emitter — plus the
 per-turn callback that lets `AgentContext` survive a killed trial, and the
-tokens-per-solved-task ceiling enforced in CI, which [apex.md](apex.md) §4 puts
+tokens-per-solved-task ceiling enforced in CI, which [apex.md](docs/apex.md) §4 puts
 at M4 and which cannot be written until a real Harbor run has produced a baseline.

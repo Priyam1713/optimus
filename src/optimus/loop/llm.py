@@ -1,7 +1,7 @@
 """The model call, and the only place a token number is invented.
 
 Two jobs, and the second is the one that matters for row 19 of
-[apex.md](../../../apex.md).
+[apex.md](../../../docs/apex.md).
 
 **Mount the provider layer.** `litellm` already speaks to every provider, already
 normalises usage, and already carries a per-model price table. Re-implementing
@@ -33,8 +33,9 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol, Sequence
+from typing import Any, Protocol
 
 #: Providers whose APIs take explicit cache breakpoints rather than caching by
 #: prefix automatically. Membership decides whether `cache_control` markers are
@@ -57,7 +58,7 @@ class Usage:
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
 
-    def merged(self, other: "Usage") -> "Usage":
+    def merged(self, other: Usage) -> Usage:
         return Usage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,

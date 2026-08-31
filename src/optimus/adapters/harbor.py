@@ -48,9 +48,10 @@ import logging
 import os
 import shlex
 import threading
+from collections.abc import Sequence
 from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from ..context.window import ContextBudget, ContextWindow
 from ..gate.envelope import Envelope, EnvelopeRefused
@@ -115,7 +116,7 @@ class EnvironmentTransport:
 
     def __init__(
         self,
-        environment: "BaseEnvironment",
+        environment: BaseEnvironment,
         event_loop: asyncio.AbstractEventLoop,
         *,
         logger: logging.Logger | None = None,
@@ -292,7 +293,7 @@ class OptimusAgent(BaseAgent):  # type: ignore[misc]
 
     # -- setup ----------------------------------------------------------------
 
-    async def setup(self, environment: "BaseEnvironment") -> None:
+    async def setup(self, environment: BaseEnvironment) -> None:
         """Establish the workspace and confirm the transport's assumptions.
 
         Nothing is installed into the environment. The loop runs on the host and
@@ -312,7 +313,7 @@ class OptimusAgent(BaseAgent):  # type: ignore[misc]
                 "and the agent will have to fall back to shell redirection"
             )
 
-    async def _resolve_workspace(self, environment: "BaseEnvironment") -> str:
+    async def _resolve_workspace(self, environment: BaseEnvironment) -> str:
         configured = getattr(
             getattr(environment, "task_env_config", None), "workdir", None
         )
@@ -326,8 +327,8 @@ class OptimusAgent(BaseAgent):  # type: ignore[misc]
     async def run(
         self,
         instruction: str,
-        environment: "BaseEnvironment",
-        context: "AgentContext",
+        environment: BaseEnvironment,
+        context: AgentContext,
     ) -> None:
         if not self._workspace:  # pragma: no cover - setup always runs first
             self._workspace = await self._resolve_workspace(environment)
@@ -375,7 +376,7 @@ class OptimusAgent(BaseAgent):  # type: ignore[misc]
             json.dumps(metrics, indent=2, default=str), encoding="utf-8"
         )
 
-    def populate_context_post_run(self, context: "AgentContext") -> None:
+    def populate_context_post_run(self, context: AgentContext) -> None:
         """Rebuild the receipt from the ledger after `run()` is over.
 
         Harbor calls this once the trial's logs are back on the host, including
@@ -402,48 +403,15 @@ class OptimusAgent(BaseAgent):  # type: ignore[misc]
             self.logger.warning(f"cannot reopen the ledger to rebuild metrics: {exc}")
             return
         try:
-            events = store.events()
             run_id = next(
-                (e.payload.get("run_id") for e in events if e.payload.get("run_id")),
+                (
+                    e.payload["run_id"]
+                    for e in store.events()
+                    if e.payload.get("run_id")
+                ),
                 self.session_id or "",
             )
-            meter = aggregate(events, run_id=run_id or "")
-            finished = [e for e in events if e.kind == "run.finished"]
-            metrics = {
-                "run_id": run_id,
-                "harness": AGENT_NAME,
-                "harness_version": VERSION,
-                "model": self.model_name,
-                # The loop never reached its own `run.finished`, so say that
-                # rather than inventing a stop reason it never recorded.
-                "stop_reason": (
-                    finished[-1].payload.get("stop_reason") if finished
-                    else "killed_before_finishing"
-                ),
-                "reconstructed_from_ledger": not finished,
-                "turns": meter.turns,
-                "input_tokens": meter.input_tokens,
-                "output_tokens": meter.output_tokens,
-                "cached_tokens": meter.cached_tokens,
-                "total_tokens": meter.total_tokens,
-                "cost_usd": round(meter.cost_usd, 6),
-                "no_action_turns": meter.no_action_turns,
-                "provider_errors": meter.provider_errors,
-                "breakers_fired": meter.breakers_fired,
-                "unsafe_attempts_refused": meter.denials,
-                "operator_interventions_required": meter.approvals_required,
-                "actions": meter.actions,
-                "actions_settled_ok": meter.settled_ok,
-                "wall_ms": meter.wall_ms,
-                "venue": "harbor",
-                "workspace": self._workspace,
-                "ledger_rows": len(events),
-            }
-            route = [e for e in events if e.kind == "model.route"]
-            if route:
-                metrics["engine"] = route[-1].payload.get("engine")
-                metrics["routed_model"] = route[-1].payload.get("model")
-                metrics["local"] = route[-1].payload.get("local")
+            metrics = self._metrics_for(store, run_id)
         finally:
             store.close()
 
@@ -511,7 +479,7 @@ class OptimusAgent(BaseAgent):  # type: ignore[misc]
             outcome = loop.run(instruction, environment=environment_note)
             gate.close_envelope("run finished")
 
-            metrics = self._metrics_for(outcome, store, run_id, venue, gate)
+            metrics = self._metrics_for(store, run_id, venue=venue)
         finally:
             store.close()
 
@@ -641,53 +609,78 @@ class OptimusAgent(BaseAgent):  # type: ignore[misc]
 
     def _metrics_for(
         self,
-        outcome: RunOutcome,
         store: LedgerStore,
         run_id: str,
-        venue: RemoteVenue,
-        gate: Gate,
+        *,
+        venue: RemoteVenue | None = None,
     ) -> dict[str, Any]:
-        """The receipt.
+        """The receipt, folded out of the ledger.
 
-        Every count here is read back out of the ledger rather than off the
+        There is exactly one of these, used both when a run finishes normally
+        and when `populate_context_post_run` rebuilds after a killed trial. Two
+        builders is how `provider_errors` came to exist only on the crash path
+        and `engine` only on the other — a published metric that appears when
+        the run fails and vanishes when it succeeds is worse than no metric.
+
+        Everything countable is read back out of the ledger rather than off the
         in-memory loop, so the published number and the signed record are the
-        same number by construction. `solved` and therefore
-        `tokens_per_solved_task` are absent on purpose: the verifier has not run
-        yet, and `report.py` joins its verdict to this file.
+        same number by construction. `solved` is absent on purpose: the verifier
+        has not run yet, and `report.py` joins its verdict to this file.
         """
-        meter = aggregate(store.events(), run_id=run_id)
-        return {
+        events = store.events()
+        meter = aggregate(events, run_id=run_id)
+        finished = [e for e in events if e.kind == "run.finished"]
+        opened = [e for e in events if e.kind == "envelope.opened"]
+        routes = [e for e in events if e.kind == "model.route"]
+        ending = finished[-1].payload if finished else {}
+
+        metrics: dict[str, Any] = {
             "run_id": run_id,
             "harness": AGENT_NAME,
             "harness_version": VERSION,
             "model": self.model_name,
-            "stop_reason": outcome.stop_reason,
+            # A run that never reached its own `run.finished` says so, rather
+            # than borrowing a stop reason it never recorded.
+            "stop_reason": ending.get("stop_reason", "killed_before_finishing"),
+            "reconstructed_from_ledger": not finished,
             "turns": meter.turns,
             "input_tokens": meter.input_tokens,
             "output_tokens": meter.output_tokens,
             "cached_tokens": meter.cached_tokens,
             "total_tokens": meter.total_tokens,
             "cost_usd": round(meter.cost_usd, 6),
-            # The two nobody publishes.
+            # The three nobody publishes.
             "no_action_turns": meter.no_action_turns,
+            "provider_errors": meter.provider_errors,
             "breakers_fired": meter.breakers_fired,
             # Refusals and interventions: what a Gate buys, as a number.
             "unsafe_attempts_refused": meter.denials,
             "operator_interventions_required": meter.approvals_required,
-            # Named, not described: the full document is already an
-            # `envelope.opened` row in the ledger shipping alongside this file.
-            "envelope": self._envelope_id,
-            "envelope_uses": gate.envelope_uses,
             "actions": meter.actions,
             "actions_settled_ok": meter.settled_ok,
-            "compactions": outcome.compactions,
-            "wall_ms": outcome.wall_ms,
-            "venue": venue.name,
-            "isolation": venue.isolation().name,
+            "compactions": sum(1 for e in events if e.kind == "context.compacted"),
+            "wall_ms": ending.get("wall_ms", meter.wall_ms),
+            "summary": ending.get("summary", ""),
+            # Named, not described: the full document is already an
+            # `envelope.opened` row in the ledger shipping alongside this file.
+            "envelope": (
+                opened[-1].payload.get("envelope_id") if opened else None
+            ),
+            "envelope_uses": sum(1 for e in events if e.kind == "envelope.used"),
             "workspace": self._workspace,
-            "ledger_rows": len(store.events()),
-            "summary": outcome.summary,
+            "ledger_rows": len(events),
         }
+        # Which model actually served the turns. On a local-first system this
+        # belongs in every receipt, not only in the ones rebuilt after a crash.
+        if routes:
+            route = routes[-1].payload
+            metrics["engine"] = route.get("engine")
+            metrics["routed_model"] = route.get("model")
+            metrics["local"] = route.get("local")
+        if venue is not None:
+            metrics["venue"] = venue.name
+            metrics["isolation"] = venue.isolation().name
+        return metrics
 
 
 def _truthy(value: str | None) -> bool:

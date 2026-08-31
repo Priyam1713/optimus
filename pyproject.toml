@@ -5,13 +5,36 @@ build-backend = "hatchling.build"
 [project]
 name = "optimus"
 version = "0.0.1"
-description = "The Apex agent harness: one authorization path, one signed ledger, metered everything."
-readme = "apex.md"
+description = "An agent harness where every effect is authorized once, recorded once, and metered - and the receipt verifies."
+readme = "README.md"
+keywords = [
+  "agent", "llm", "local-first", "llama-cpp", "terminal-bench", "harbor",
+  "agent-security", "audit-log", "capability-security", "ai-safety",
+]
+authors = [{ name = "Priyam Vyas" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Security",
+  "Typing :: Typed",
+]
+
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 dependencies = [
   "cryptography>=45",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Priyam1713/optimus"
+Repository = "https://github.com/Priyam1713/optimus"
+Status = "https://github.com/Priyam1713/optimus/blob/main/STATUS.md"
+Architecture = "https://github.com/Priyam1713/optimus/blob/main/docs/apex.md"
+Issues = "https://github.com/Priyam1713/optimus/issues"
 
 [project.optional-dependencies]
 sdk = ["openhands-sdk>=1.43"]
@@ -20,7 +43,7 @@ sdk = ["openhands-sdk>=1.43"]
 loop = ["litellm>=1.98"]
 # The Terminal-Bench 2.0 harness. Only `adapters/harbor.py` needs it.
 harbor = ["harbor>=0.22", "litellm>=1.98"]
-dev = ["pytest>=8", "pytest-asyncio>=1"]
+dev = ["pytest>=8", "pytest-asyncio>=1", "ruff>=0.6"]
 
 [project.scripts]
 optimus = "optimus.cli:main"
@@ -31,3 +54,40 @@ packages = ["src/optimus"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.ruff]
+# Pinned explicitly rather than inherited: an unpinned default set means CI
+# starts failing when the linter ships a new rule, which trains everyone to
+# ignore it.
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # import sorting
+  "UP",       # pyupgrade
+  "B",        # bugbear
+  "C4",       # comprehensions
+  "SIM",      # simplify
+  "RUF",      # ruff's own
+]
+ignore = [
+  # Deliberate throughout: a health check, a provider call and a ledger reopen
+  # all have to survive anything the far side does. Each one is narrowed by a
+  # comment at the site rather than by a type the caller cannot predict.
+  "BLE001",
+  # Long lines are the exception, not the rule; the limit above is enforced.
+  "E501",
+  # Em and en dashes are deliberate in prose. Every docstring in this project
+  # is meant to be read, and typographic punctuation is part of that.
+  "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts print for a living and set sys.path before importing the package.
+"scripts/*" = ["E402", "T201"]
+# Tests reach into privates deliberately, to assert on state a public API
+# should not expose.
+"tests/*" = ["SLF001", "E402"]

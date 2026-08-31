@@ -17,7 +17,6 @@ from optimus.context import (
     CompactionRefused,
     ContextBudget,
     ContextWindow,
-    Episode,
     EpisodeKind,
 )
 from optimus.gate import (
@@ -25,7 +24,6 @@ from optimus.gate import (
     Gate,
     Reversibility,
     Verb,
-    Verdict,
     WorkspaceResolver,
     baseline_policy,
 )
@@ -40,7 +38,6 @@ from optimus.ledger import (
 )
 from optimus.meter import aggregate, suite
 from optimus.tools import ToolBudgetPolicy, ToolMode, ToolSpec
-
 
 # ---------------------------------------------------------------------------
 # persistence — audit.md §2.8

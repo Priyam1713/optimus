@@ -47,7 +47,6 @@ from optimus.gate.types import (
 from optimus.ledger import AgentKey, Chain, Event, OwnerKey, TrustLabel, attest, verify
 from optimus.ledger.chain import hash_body
 
-
 # ---------------------------------------------------------------------------
 # fixtures
 # ---------------------------------------------------------------------------
@@ -72,15 +71,15 @@ def gate(workspace: Path) -> Gate:
 
 
 def req(**kw) -> CapabilityRequest:
-    base = dict(
-        actor="agent-1",
-        verb=Verb.WRITE,
-        trust=TrustLabel.TRUSTED_USER,
-        reversibility=Reversibility.COMPENSATION,
-        tool="write_file",
-        target_spec="notes.txt",
-        intent="test",
-    )
+    base = {
+        "actor": "agent-1",
+        "verb": Verb.WRITE,
+        "trust": TrustLabel.TRUSTED_USER,
+        "reversibility": Reversibility.COMPENSATION,
+        "tool": "write_file",
+        "target_spec": "notes.txt",
+        "intent": "test",
+    }
     base.update(kw)
     return CapabilityRequest(**base)
 
@@ -576,7 +575,7 @@ def test_every_decision_is_on_the_record_before_the_effect(gate: Gate, workspace
     from optimus.gate.targets import resolve_fs as rfs
 
     before = len(gate.chain.events)
-    out = gate.submit(req(verb=Verb.READ, tool="read_file", target_spec="notes.txt"))
+    gate.submit(req(verb=Verb.READ, tool="read_file", target_spec="notes.txt"))
     after = gate.chain.events[before:]
     assert [e.kind for e in after] == ["gate.decision"], "a read needs no compensation row"
     assert after[0].payload["verdict"] == "allow"

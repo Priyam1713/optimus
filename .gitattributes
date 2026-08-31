@@ -1,0 +1,9 @@
+# One line ending in the repository, whatever the checkout platform does.
+# Without this, a Windows checkout rewrites ~37 files to CRLF and the next
+# contributor on Linux sees a whole-file diff that changes nothing.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.db  binary
+*.key binary

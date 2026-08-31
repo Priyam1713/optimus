@@ -1,6 +1,6 @@
 """The context window, its budget, and the compaction that has to prove itself.
 
-This is the row [apex.md](../../../apex.md) §4 names as the debt: adopting the
+This is the row [apex.md](../../../docs/apex.md) §4 names as the debt: adopting the
 OpenHands SDK means inheriting roughly 840K tokens per solved task until its
 condenser is replaced, against Goose's 28-37K at a pass rate within 0-8pp
 (`research.md` §2.1). So the plane has three jobs, in order of how much they are
@@ -19,8 +19,8 @@ worth:
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Iterable, Sequence
 
 from .episodes import Episode, EpisodeKind, TokenCounter, heuristic_tokens
 

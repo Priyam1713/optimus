@@ -25,9 +25,10 @@ import hashlib
 import ipaddress
 import os
 import socket
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 from urllib.parse import urlsplit
 
 from ..ledger.events import canonical

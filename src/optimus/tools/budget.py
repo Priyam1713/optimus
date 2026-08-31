@@ -22,9 +22,10 @@ So this is the synthesis: three modes, one decision function, no flag.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from ..context.episodes import TokenCounter, heuristic_tokens
 from ..context.window import ContextBudget

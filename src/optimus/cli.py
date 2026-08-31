@@ -20,14 +20,15 @@ import argparse
 import sys
 from pathlib import Path
 
-from .gate.envelope import ANY_WORKSPACE, DEFAULT_VERBS, issue as issue_envelope
+from .gate.envelope import ANY_WORKSPACE, DEFAULT_VERBS
+from .gate.envelope import issue as issue_envelope
 from .ledger.chain import attest as sign_checkpoint
 from .ledger.keys import AgentKey, OwnerKey, fingerprint
 from .ledger.store import LedgerStore
-from .meter import aggregate
-from .reversal.blobs import BlobStore
 from .loop.engines import ConfigError, Registry
+from .meter import aggregate
 from .report import report_for
+from .reversal.blobs import BlobStore
 from .reversal.compensator import Compensator, record_undo
 
 

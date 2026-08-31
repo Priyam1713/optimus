@@ -114,7 +114,7 @@ class Envelope:
         return {**self.body(), "signature": self.signature}
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "Envelope":
+    def from_dict(d: dict[str, Any]) -> Envelope:
         return Envelope(
             envelope_id=str(d["envelope_id"]),
             principal=str(d["principal"]),
@@ -194,12 +194,11 @@ class Envelope:
         if self.workspace == ANY_WORKSPACE:
             return True, ""
         workspace = getattr(resolved, "workspace", None)
-        if self.workspace and isinstance(workspace, str):
-            if workspace != self.workspace:
-                # An empty string lands here too, and refusing it is right: a
-                # filesystem target with no workspace was not contained by
-                # anything, and an envelope is not the place to start trusting it.
-                return False, "target is outside the envelope's workspace"
+        # An empty workspace string lands here too, and refusing it is right: a
+        # filesystem target with no workspace was not contained by anything, and
+        # an envelope is not the place to start trusting it.
+        if self.workspace and isinstance(workspace, str) and workspace != self.workspace:
+            return False, "target is outside the envelope's workspace"
         return True, ""
 
     @property

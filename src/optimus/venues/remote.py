@@ -24,8 +24,9 @@ venue tells a comfortable lie:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Callable, Protocol, Sequence
+from typing import Protocol
 
 from ..gate.remote import RemoteCapability
 from .base import Isolation, VenueRequest, VenueResult, truncate

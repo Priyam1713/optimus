@@ -42,9 +42,10 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any
 
 #: Where a config is looked for when none is named.
 DEFAULT_CONFIG_PATHS: tuple[str, ...] = (
@@ -159,7 +160,7 @@ class Registry:
     # -- loading --------------------------------------------------------------
 
     @staticmethod
-    def load(path: str | os.PathLike[str] | None = None) -> "Registry":
+    def load(path: str | os.PathLike[str] | None = None) -> Registry:
         resolved = _resolve_config(path)
         if resolved is None:
             raise ConfigError(
@@ -174,7 +175,7 @@ class Registry:
         return Registry.from_dict(raw, source=str(resolved))
 
     @staticmethod
-    def from_dict(raw: dict[str, Any], *, source: str = "") -> "Registry":
+    def from_dict(raw: dict[str, Any], *, source: str = "") -> Registry:
         engines: dict[str, EngineSpec] = {}
         for entry in raw.get("engine", []):
             spec = _build(EngineSpec, entry, "engine")
@@ -293,7 +294,7 @@ def _build(cls: type, entry: Any, label: str):
     """
     if not isinstance(entry, dict):
         raise ConfigError(f"[[{label}]] entries must be tables, got {type(entry).__name__}")
-    known = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
+    known = set(cls.__dataclass_fields__)  # type: ignore[attr-defined]
     unknown = set(entry) - known
     if unknown:
         raise ConfigError(

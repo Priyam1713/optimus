@@ -40,8 +40,10 @@ import hashlib
 import json
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol, Sequence
+from datetime import UTC
+from typing import Any, Protocol
 
 from ..context.episodes import Episode, EpisodeKind
 from ..context.window import CompactionRefused, ContextWindow
@@ -1038,6 +1040,6 @@ def _brief(arguments: dict[str, Any], limit: int = 120) -> str:
 
 
 def _now_iso() -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

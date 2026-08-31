@@ -51,28 +51,28 @@ def _chain() -> Chain:
 
 
 def _envelope(owner: OwnerKey, **over) -> Envelope:
-    kw = dict(
-        principal="operator@example",
-        actor="agent",
-        workspace="/work",
-        venues=("harbor",),
-        max_actions=10,
-        reason="test",
-    )
+    kw = {
+        "principal": "operator@example",
+        "actor": "agent",
+        "workspace": "/work",
+        "venues": ("harbor",),
+        "max_actions": 10,
+        "reason": "test",
+    }
     kw.update(over)
     return issue(owner, **kw)
 
 
 def _request(**over) -> CapabilityRequest:
-    kw = dict(
-        actor="agent",
-        verb=Verb.WRITE,
-        trust=TrustLabel.UNTRUSTED_MODEL_OUTPUT,
-        reversibility=Reversibility.SNAPSHOT,
-        tool="write_file",
-        target_spec="notes.txt",
-        venue="harbor",
-    )
+    kw = {
+        "actor": "agent",
+        "verb": Verb.WRITE,
+        "trust": TrustLabel.UNTRUSTED_MODEL_OUTPUT,
+        "reversibility": Reversibility.SNAPSHOT,
+        "tool": "write_file",
+        "target_spec": "notes.txt",
+        "venue": "harbor",
+    }
     kw.update(over)
     return CapabilityRequest(**kw)
 
@@ -1444,7 +1444,6 @@ class TestHarborAdapterEndToEnd:
         """
         from harbor.models.agent.context import AgentContext
 
-        import optimus.adapters.harbor as adapter
         from optimus.adapters.harbor import OptimusAgent
 
         manifest = tmp_path / "engines.toml"
@@ -1539,6 +1538,12 @@ class TestHarborAdapterEndToEnd:
         agent.populate_context_post_run(context)
 
         metrics = context.metadata["optimus"]
+        # One builder serves both paths, so every field a finished run
+        # publishes is present here too. `provider_errors` existing only on the
+        # crash path, and `engine` only on the other, is how it was before.
+        for field in ("provider_errors", "envelope_uses", "compactions",
+                      "unsafe_attempts_refused", "reconstructed_from_ledger"):
+            assert field in metrics, field
         assert metrics["input_tokens"] == 900
         assert metrics["output_tokens"] == 40
         assert metrics["cached_tokens"] == 700

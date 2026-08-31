@@ -36,21 +36,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from optimus.context.window import ContextBudget, ContextWindow  # noqa: E402
-from optimus.gate.envelope import Envelope, issue  # noqa: E402
-from optimus.gate.gate import Gate  # noqa: E402
-from optimus.gate.policy import benchmark_policy  # noqa: E402
-from optimus.gate.remote import RemoteResolver  # noqa: E402
-from optimus.ledger.chain import attest  # noqa: E402
-from optimus.ledger.keys import AgentKey, OwnerKey  # noqa: E402
-from optimus.ledger.store import DurableChain, LedgerStore  # noqa: E402
-from optimus.loop.agent import AgentLoop, LoopLimits  # noqa: E402
-from optimus.loop.llm import ModelReply, ScriptedLLM, ToolCall, Usage  # noqa: E402
-from optimus.meter import aggregate  # noqa: E402
-from optimus.report import Report, Trial  # noqa: E402
-from optimus.tools.remote import RemoteTools, probe_environment  # noqa: E402
-from optimus.venues.base import Isolation  # noqa: E402
-from optimus.venues.remote import RemoteExec, RemoteVenue  # noqa: E402
+from optimus.context.window import ContextBudget, ContextWindow
+from optimus.gate.envelope import Envelope, issue
+from optimus.gate.gate import Gate
+from optimus.gate.policy import benchmark_policy
+from optimus.gate.remote import RemoteResolver
+from optimus.ledger.chain import attest
+from optimus.ledger.keys import AgentKey, OwnerKey
+from optimus.ledger.store import DurableChain, LedgerStore
+from optimus.loop.agent import AgentLoop, LoopLimits
+from optimus.loop.llm import ModelReply, ScriptedLLM, ToolCall, Usage
+from optimus.meter import aggregate
+from optimus.report import Report, Trial
+from optimus.tools.remote import RemoteTools, probe_environment
+from optimus.venues.base import Isolation
+from optimus.venues.remote import RemoteExec, RemoteVenue
 
 TASK = (
     "Create a file `report/summary.txt` in the workspace containing the exact "

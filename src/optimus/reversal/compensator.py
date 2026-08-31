@@ -15,8 +15,9 @@ deletions, and later registry writes, process starts and app state.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from ..gate.handle import Compensation
 from ..gate.targets import FsTarget, ResolvedTarget
@@ -139,7 +140,7 @@ class Compensator:
                 continue
             try:
                 report.applied.append(self.apply(ev.payload))
-            except Exception as exc:  # noqa: BLE001 - one failure must not stop the rest
+            except Exception as exc:
                 report.failed.append(f"seq {ev.seq}: {type(exc).__name__}: {exc}")
         return report
 

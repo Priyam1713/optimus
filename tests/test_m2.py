@@ -18,20 +18,17 @@ from optimus.gate import (
     CapabilityViolation,
     FileCapability,
     Gate,
-    Reversibility,
     Verb,
-    Verdict,
     WorkspaceResolver,
     baseline_policy,
     capability_for,
     instance_digest,
 )
 from optimus.gate.targets import resolve_argv, resolve_fs
-from optimus.ledger import AgentKey, Chain, TrustLabel
+from optimus.ledger import AgentKey, Chain
 from optimus.reversal import BlobStore, Compensator, record_undo
 from optimus.tools import GatedTools
 from optimus.venues import (
-    ENV_ALLOW,
     Isolation,
     LocalVenue,
     VenueRequest,

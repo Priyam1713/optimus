@@ -12,7 +12,7 @@ Approving one command approves one command.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 def _now() -> float:
@@ -75,8 +75,7 @@ class GrantStore:
     def revoke_all(self, subject: str | None = None) -> int:
         n = 0
         for (subj, _), g in self._grants.items():
-            if subject is None or subj == subject:
-                if not g.revoked:
-                    g.revoked = True
-                    n += 1
+            if (subject is None or subj == subject) and not g.revoked:
+                g.revoked = True
+                n += 1
         return n

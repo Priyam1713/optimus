@@ -164,7 +164,7 @@ class TestRouting:
         router, rows, calls = self._router([ModelReply(text="hi", usage=Usage())])
         reply = router.complete([], [])
         assert not reply.error and calls == ["llama_cpp:qwen35-9b"]
-        route = [p for k, p in rows if k == "model.route"][0]
+        route = next(p for k, p in rows if k == "model.route")
         assert route["engine"] == "llama_cpp" and route["local"] is True
         assert any("local-only" in r for r in route["excluded"])
 
@@ -176,7 +176,7 @@ class TestRouting:
         reply = router.complete([], [])
         assert not reply.error
         assert calls == ["llama_cpp:qwen35-9b", "llama_cpp:qwen38-27b"]
-        route = [p for k, p in rows if k == "model.route"][0]
+        route = next(p for k, p in rows if k == "model.route")
         assert route["model"] == "qwen38-27b"
         assert route["fallbacks"] and "503" in route["fallbacks"][0]
 
@@ -191,7 +191,7 @@ class TestRouting:
         assert reply.retryable is False
 
     def test_an_unhealthy_engine_is_skipped_not_attempted(self):
-        router, rows, calls = self._router([], healthy=False)
+        router, _rows, calls = self._router([], healthy=False)
         reply = router.complete([], [])
         assert calls == []
         assert "unhealthy" in reply.error
@@ -213,7 +213,7 @@ class TestRouting:
         assert reply.retryable is False
 
     def test_a_working_candidate_is_reused_without_re_probing_health(self):
-        router, rows, calls = self._router([
+        router, rows, _calls = self._router([
             ModelReply(text="one", usage=Usage()),
             ModelReply(text="two", usage=Usage()),
         ])

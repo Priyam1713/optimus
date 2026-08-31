@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from ..ledger.chain import Chain
 from ..ledger.events import Event, Meter, TrustLabel

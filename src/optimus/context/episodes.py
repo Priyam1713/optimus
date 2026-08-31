@@ -28,7 +28,7 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 _ids = itertools.count(1)
 

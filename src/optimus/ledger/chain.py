@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from .events import Checkpoint, Event, TrustLabel, canonical
 from .keys import AgentKey, OwnerKey, fingerprint, verify_signature

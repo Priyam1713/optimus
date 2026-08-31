@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -9,7 +10,7 @@ import sys
 import time
 
 from ..gate.capability import ArgvCapability
-from .base import Isolation, Venue, VenueRequest, VenueResult, scrub_env, truncate
+from .base import Isolation, VenueRequest, VenueResult, scrub_env, truncate
 
 _WINDOWS = sys.platform == "win32"
 
@@ -27,28 +28,20 @@ def _kill_tree(proc: subprocess.Popen) -> None:
     if _WINDOWS:
         # taskkill walks the tree; the fallback matters when the pid is already
         # gone between the poll and the call.
-        try:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                 capture_output=True, timeout=10, check=False,
             )
-        except (OSError, subprocess.SubprocessError):
-            pass
     else:
         import signal
 
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
-    try:
+    with contextlib.suppress(OSError):
         proc.kill()
-    except OSError:
-        pass
-    try:
+    with contextlib.suppress(subprocess.TimeoutExpired):
         proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
 
 
 class LocalVenue:

@@ -17,16 +17,22 @@ pytest.importorskip("openhands.sdk", reason="SDK extra not installed")
 
 os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
 
-from openhands.sdk.security.risk import SecurityRisk  # noqa: E402
+from openhands.sdk.security.risk import SecurityRisk
 
-from optimus.adapters.openhands import (  # noqa: E402
+from optimus.adapters.openhands import (
     GateBridge,
     GatedExecutor,
     OptimusSecurityAnalyzer,
 )
-from optimus.gate import Gate, Verb, WorkspaceResolver, baseline_policy, instance_digest  # noqa: E402
-from optimus.gate.targets import resolve_fs  # noqa: E402
-from optimus.ledger import AgentKey, Chain, TrustLabel  # noqa: E402
+from optimus.gate import (
+    Gate,
+    Verb,
+    WorkspaceResolver,
+    baseline_policy,
+    instance_digest,
+)
+from optimus.gate.targets import resolve_fs
+from optimus.ledger import AgentKey, Chain
 
 
 class FakeAction:

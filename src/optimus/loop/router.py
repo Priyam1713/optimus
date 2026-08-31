@@ -25,8 +25,9 @@ loop uses for its own retries (`llm.classify_error`).
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from .engines import Candidate, ConfigError, Registry
 from .llm import LiteLLM, ModelReply
