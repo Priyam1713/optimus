@@ -111,6 +111,23 @@ python scripts/bench.py --tasks 10          # local engines, no key, no cost
 optimus report jobs/<job-id>
 ```
 
+When a trial does something surprising, `optimus why` reads it back out of its
+ledger — where the turns went, how the prompt grew, what the Gate refused, and
+what stopped it:
+
+```
+$ optimus why jobs/<job-id>/<trial>
+stopped  max_turns
+verifier not solved
+ledger   171 rows, 40 turns, envelope env_e586... used 40x
+
+where the tokens went    617,363 total, 439,927 cached (80% of input)
+  prompt size per turn, peak 26,888
+   19 #####################...  23,860
+   20 ########################  26,461  <- repeat
+   21 ############............  13,729  <- compacted 18 episodes, 31288 -> 25830
+```
+
 `optimus report` publishes **pass^k alongside pass@k**. Harbor computes pass@k —
 the chance at least one of k attempts succeeds, which rises as you buy more
 attempts. pass^k asks whether *all* k succeed. One measures how cheap a lottery

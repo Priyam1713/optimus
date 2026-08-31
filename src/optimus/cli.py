@@ -20,6 +20,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from .explain import explain_trial, find_trials, render, render_job
 from .gate.envelope import ANY_WORKSPACE, DEFAULT_VERBS
 from .gate.envelope import issue as issue_envelope
 from .ledger.chain import attest as sign_checkpoint
@@ -183,6 +184,39 @@ def cmd_engines(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_why(args: argparse.Namespace) -> int:
+    """Explain a trial, or a whole job, from its ledger.
+
+    Every finding in STATUS.md was reached by writing a one-off script against
+    a ledger. This is that script, kept.
+    """
+    trials = find_trials(args.target)
+    if not trials:
+        print(f"no trial ledger under {args.target}", file=sys.stderr)
+        return 2
+
+    if len(trials) > 1 and not args.each:
+        rendered = []
+        for name, path in trials:
+            explanation = explain_trial(path)
+            if explanation is not None:
+                rendered.append((name, explanation))
+        print(render_job(rendered))
+        print(f"\n{len(rendered)} trial(s). Add --each for the turn-by-turn account.")
+        return 0
+
+    for i, (name, path) in enumerate(trials):
+        explanation = explain_trial(path)
+        if explanation is None:
+            continue
+        if i:
+            print("\n" + "=" * 72 + "\n")
+        if len(trials) > 1:
+            print(f"{name}\n")
+        print(render(explanation, timeline=not args.no_timeline))
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     """pass^k and cost, joined from a Harbor run directory."""
     import json
@@ -301,6 +335,17 @@ def build_parser() -> argparse.ArgumentParser:
     en2.add_argument("--live", action="store_true",
                      help="also ask each engine what it is really serving")
     en2.set_defaults(func=cmd_engines)
+
+    wy = sub.add_parser(
+        "why", help="explain a trial or a job from its ledger: where the turns "
+                    "and tokens went, and what stopped it"
+    )
+    wy.add_argument("target", help="a trial directory, a job directory, or a ledger")
+    wy.add_argument("--each", action="store_true",
+                    help="turn-by-turn for every trial, not a one-line summary each")
+    wy.add_argument("--no-timeline", action="store_true",
+                    help="skip the per-turn prompt-size chart")
+    wy.set_defaults(func=cmd_why)
 
     rp = sub.add_parser(
         "report", help="pass^k, tokens per solved task and refusals from a Harbor run"

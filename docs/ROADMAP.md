@@ -40,10 +40,12 @@ bought.
 Ten runs produced ten failures and diagnosing each took a manual ledger query.
 That does not scale to 89 tasks × 5 attempts.
 
-1. **`optimus why <trial-dir>`** — read a trial's ledger and print what
-   happened: where turns went, what the breakers saw, what the Gate refused,
-   where the context stood each turn. Every one of the M3-13..16 diagnoses in
-   STATUS came from an ad-hoc script; that script should be a command.
+1. ~~**`optimus why <trial-dir>`**~~ — **done.** Reads a trial or a whole job
+   from its ledger: where the turns went, the prompt-size curve with compaction
+   points marked, what the Gate refused, and what stopped it. Building it found
+   three of its own bugs, one of which was the same class as the four it exists
+   to diagnose: two renderers disagreeing about whether the environment probe
+   counts as a turn, so the same run reported 40 in one view and 41 in another.
 
 2. **Per-turn context telemetry in the ledger.** `context.compacted` records
    the rendered size only when compaction runs. Recording it *every* turn makes
