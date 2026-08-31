@@ -42,8 +42,10 @@ retry defence is now in place.
 
 State when this was written:
 
-- **8 of 10 images pre-pulled**, two still going in a background `docker pull`
-  loop. Check with `docker images | grep alexgshaw` — expect 10.
+- **All 10 images pre-pulled and cached.** Verify with
+  `docker images | grep alexgshaw` — expect 10. One (`write-compressor`) failed
+  on the first attempt and succeeded on a retry, which is the same transient
+  registry flakiness that cost the first run 8 trials.
 - Envelope `env_01efcf8ad974c35c` has ~19 hours left. **Reissue it if expired**
   — an expired envelope refuses every action politely and wastes the whole run
   (finding M3-9, now caught at admission and in preflight).
