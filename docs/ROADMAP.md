@@ -4,7 +4,7 @@ Where this goes next, in the order the evidence says to do it. Milestone
 definitions come from [apex.md](apex.md) §7; what follows is the plan as it
 stands *after* ten real Terminal-Bench runs, which changed several priorities.
 
-Current position: **M0–M3 built, 239 tests, one complete Terminal-Bench trial,
+Current position: **M0–M3 built, 262 tests, one complete Terminal-Bench trial,
 zero solved tasks.** See [STATUS.md](../STATUS.md).
 
 ---
@@ -47,10 +47,14 @@ That does not scale to 89 tasks × 5 attempts.
    to diagnose: two renderers disagreeing about whether the environment probe
    counts as a turn, so the same run reported 40 in one view and 41 in another.
 
-2. **Per-turn context telemetry in the ledger.** `context.compacted` records
-   the rendered size only when compaction runs. Recording it *every* turn makes
-   the growth curve visible without inference, and would have caught the four
-   context bugs in one run rather than four.
+2. ~~**Per-turn context telemetry in the ledger.**~~ — **done.** A
+   `context.turn` row now records, every turn, what the plane believed the next
+   request would cost, the uncorrected estimate, the calibration, what the
+   provider charged for the last one, and the allowance. `optimus why` reports
+   the worst under-estimate and warns when the plane believed a request was
+   smaller than it was — which is the shape of every context failure this
+   project has had. The four bugs were only ever *one* run apart from being
+   obvious; they needed the estimate and the bill in the same row.
 
 3. **Trajectory diffing across attempts.** With `-k 5`, five attempts at the
    same task produce five trajectories. Where they diverge is where the model

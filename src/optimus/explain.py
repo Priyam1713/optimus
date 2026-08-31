@@ -51,6 +51,20 @@ class Turn:
     settled: list[tuple[str, bool]] = field(default_factory=list)        # tool, ok
     breakers: list[tuple[str, str]] = field(default_factory=list)        # kind, detail
     compaction: dict[str, Any] | None = None
+    #: What the context plane believed before this turn's call, from
+    #: `context.turn`. Absent on ledgers written before that row existed.
+    context: dict[str, Any] | None = None
+
+    @property
+    def estimate_gap(self) -> int | None:
+        """Estimated prompt size minus what the provider actually charged.
+
+        Negative means the harness was under-counting — the direction that ends
+        a run, because compaction never fires and the server refuses.
+        """
+        if not self.context or not self.input_tokens:
+            return None
+        return int(self.context.get("estimated", 0)) - self.input_tokens
 
     @property
     def refused(self) -> int:
@@ -204,6 +218,8 @@ def explain(events: Sequence[Event], *, source: str = "") -> Explanation:
                 turn = _bucket(by_number, int(payload.get("turn", current)))
                 turn.breakers.append((payload.get("kind", "?"),
                                       str(payload.get("detail", ""))))
+            case "context.turn":
+                _bucket(by_number, int(payload.get("turn", current))).context = dict(payload)
             case "context.compacted":
                 turn = _bucket(by_number, int(payload.get("turn", current)))
                 turn.compaction = dict(payload)
@@ -317,6 +333,27 @@ def render(exp: Explanation, *, timeline: bool = True) -> str:
             lines.append(
                 f"  {turn.number:>3} {_bar(turn.input_tokens, peak)} "
                 f"{turn.input_tokens:>7,}{mark}"
+            )
+
+    # -- did the plane know what it was sending? ------------------------------
+    gaps = [(t.number, t.estimate_gap, t.input_tokens)
+            for t in real_turns if t.estimate_gap is not None]
+    if gaps:
+        worst = min(gaps, key=lambda g: g[1])
+        allowance = next(
+            (t.context.get("allowance") for t in real_turns if t.context), 0
+        )
+        lines += [
+            "",
+            "what the context plane believed vs what it was charged",
+            f"  allowance {allowance:,}   worst under-estimate {worst[1]:+,} "
+            f"on turn {worst[0]} (charged {worst[2]:,})",
+        ]
+        if worst[1] < 0:
+            # The shape of every context failure this project has had.
+            lines.append(
+                "  ! the plane believed the request was smaller than it was, so "
+                "compaction fires late or never"
             )
 
     # -- what the Gate refused ------------------------------------------------

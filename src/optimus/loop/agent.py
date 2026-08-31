@@ -526,6 +526,39 @@ class AgentLoop:
             TrustLabel.UNTRUSTED_MODEL_OUTPUT,
         )
 
+    def _record_context(self, turn: int) -> None:
+        """What the context plane believed, every turn, next to what was true.
+
+        Four consecutive bugs (`STATUS.md` M3-13 to M3-16) were all one
+        component measuring faithfully in a unit nothing downstream was billed
+        in, and each took a separate run and a hand-written ledger query to
+        find. They were only ever *one* run apart from being obvious: put the
+        estimate and the provider's own number in the same row, every turn, and
+        a gap that opens between them is visible on the first trial rather than
+        the fourth.
+
+        `context.compacted` already recorded these, but only on turns where
+        compaction ran — which on the runs that mattered was none of them.
+        """
+        self._record(
+            "context.turn",
+            {
+                "turn": turn,
+                # What we think the next request costs, corrected.
+                "estimated": self.prompt_tokens(),
+                # The same estimate before correction, so the correction itself
+                # is auditable rather than folded invisibly into one number.
+                "raw_estimate": self._last_estimate,
+                "calibration": round(self._calibration, 4),
+                # What the provider charged for the last one. Truth.
+                "observed_last": self._observed_prompt,
+                "allowance": self.window.budget.fillable,
+                "episode_tokens": self.window.used(),
+                "episodes": len(self.window.episodes),
+            },
+            TrustLabel.TRUSTED_LOCAL,
+        )
+
     def _breaker(self, kind: str, turn: int, detail: str) -> None:
         self._record(
             "loop.breaker", {"kind": kind, "turn": turn, "detail": detail},
@@ -609,6 +642,7 @@ class AgentLoop:
 
             record = TurnRecord(turn=turn, timestamp=_now_iso())
             self._last_estimate = self._raw_prompt_tokens()
+            self._record_context(turn)
             reply = self.llm.complete(self.messages(), TOOL_SCHEMAS)
             if not reply.error and reply.usage.input_tokens:
                 self._calibrate(self._last_estimate, reply.usage.input_tokens)

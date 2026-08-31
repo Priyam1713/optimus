@@ -204,6 +204,38 @@ class TestRendering:
         assert "<- repeat" in rendered
         assert "identical action 4x" in rendered
 
+    def test_the_estimate_versus_the_bill_is_surfaced(self):
+        """The diagnostic four separate bugs needed and did not have."""
+        chain = _a_run(_chain())
+        chain.append("context.turn",
+                     {"turn": 3, "estimated": 20_000, "raw_estimate": 16_000,
+                      "calibration": 1.25, "observed_last": 19_000,
+                      "allowance": 28_672, "episode_tokens": 9_000, "episodes": 40},
+                     TrustLabel.TRUSTED_LOCAL)
+        # The provider then charged far more than the plane believed.
+        _model_call(chain, 3, ["bash"], input_tokens=31_000)
+        exp = explain(chain.events)
+        turn = next(t for t in exp.real_turns if t.number == 3)
+        assert turn.estimate_gap == 20_000 - 31_000
+        rendered = render(exp, timeline=False)
+        assert "believed the request was smaller than it was" in rendered
+        assert "allowance 28,672" in rendered
+
+    def test_no_warning_when_the_estimate_was_not_low(self):
+        chain = _a_run(_chain())
+        chain.append("context.turn",
+                     {"turn": 3, "estimated": 22_000, "allowance": 28_672},
+                     TrustLabel.TRUSTED_LOCAL)
+        _model_call(chain, 3, ["bash"], input_tokens=20_000)
+        rendered = render(explain(chain.events), timeline=False)
+        assert "believed the request was smaller" not in rendered
+
+    def test_an_old_ledger_without_the_row_still_renders(self):
+        """Ledgers written before `context.turn` existed must not break."""
+        exp = explain(_a_run(_chain()).events)
+        assert all(t.estimate_gap is None for t in exp.real_turns)
+        assert "what the context plane believed" not in render(exp, timeline=False)
+
     def test_a_clean_run_says_nothing_was_refused(self):
         chain = _chain()
         chain.append("run.started", {"run_id": "r", "model": "m"}, TrustLabel.TRUSTED_USER)

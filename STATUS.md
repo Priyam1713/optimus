@@ -9,7 +9,7 @@ Design: [research.md](docs/research.md) (field) → [audit.md](docs/audit.md) (p
 
 ```bash
 .venv/Scripts/python.exe -m pip install -e ".[loop,harbor]"
-.venv/Scripts/python.exe -m pytest -q          # 239 passed, 2 skipped
+.venv/Scripts/python.exe -m pytest -q          # 262 passed, 2 skipped
 .venv/Scripts/python.exe scripts/context_profile.py
 .venv/Scripts/python.exe scripts/m3_demo.py    # the whole path, end to end
 optimus status --ledger state/ledger.db
@@ -170,6 +170,8 @@ receipt that proves provenance and one that proves self-consistency.
 | Remote target resolution — lexical containment, explicit `pins_identity: False`, shell only via a declared `{"script": ...}` | `gate/remote.py` | audit §2.1, §2.5 |
 | `RemoteVenue` — declared isolation, transport failure distinguished from a non-zero exit | `venues/remote.py` | audit §2.12 |
 | `RemoteTools` — read/write/list/bash in a container, base64 on the wire, every one through the Gate | `tools/remote.py` | apex invariant 1 |
+| `optimus why` — reads a trial or job back out of its ledger: turns, the prompt curve, refusals, breakers, and the estimate-vs-bill gap | `explain.py` | findings M3-13..16 |
+| Per-turn `context.turn` telemetry — what the plane believed next to what the provider charged | `loop/agent.py` | findings M3-13..16 |
 | **The loop** — turn cycle, no-action and repeat breakers, cost/wall/turn ceilings, fatal-vs-transient provider handling with provider-hinted backoff | `loop/agent.py` | research §2.1, doom-loop finding |
 | **Local-first model layer** — engines and models as data; a hosted engine is excluded from every route unless a caller opts in; health check, ordered fallback, route on the ledger | `loop/engines.py`, `loop/router.py` | apex row 17, local-first |
 | Model call metered as `model.call`, with the provider's own usage and cache figures | `loop/agent.py`, `loop/llm.py` | apex invariant 5 |
