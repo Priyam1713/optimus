@@ -250,6 +250,18 @@ class LoopLimits:
     #: dropped, never the head or the tail: a compiler names the file at the top
     #: and the failure at the bottom.
     observation_chars: int = 6_000
+    #: Turns-remaining marks at which the model is told how much runway is left.
+    #:
+    #: The ten-task run found the model flying blind: two solved tasks ran bash
+    #: to turn 40 and never called `finish`, because nothing in the prompt or
+    #: the conversation ever said how many turns there were. A third called
+    #: `finish` on turn 40 — the last one available. The model was not refusing
+    #: to conclude; it had no idea it was nearly out of road.
+    #:
+    #: Two marks rather than one per turn: a notice every turn would add forty
+    #: messages to a budget this project spends real effort bounding, and the
+    #: information only changes behaviour near the end.
+    budget_notices: tuple[int, ...] = (10, 3)
 
 
 @dataclass(slots=True)
@@ -412,6 +424,18 @@ class AgentLoop:
 
     def _system_content(self) -> Any:
         text = self.system_prompt
+        # How much road there is. Constant for the run, so it stays part of the
+        # stable cache prefix and costs one line once rather than per turn.
+        #
+        # Saying it at all is the point: without this the model cannot tell
+        # turn 3 from turn 39, and the ten-task run showed exactly what that
+        # produces — solved tasks running bash into the ceiling because nothing
+        # ever indicated the end was near.
+        text += (
+            f"\n\nYou have at most {self.limits.max_turns} turns. The run stops "
+            "there whether or not you have called `finish`, and work left "
+            "unfinished at that point is lost."
+        )
         if self.invariants:
             text += "\n\nStanding rules:\n" + "\n".join(
                 f"- {rule}" for rule in self.invariants
@@ -612,6 +636,54 @@ class AgentLoop:
             TrustLabel.TRUSTED_LOCAL,
         )
 
+    # -- turn budget ----------------------------------------------------------
+
+    def _budget_notice(self, turn: int, announced: set[int]) -> None:
+        """Tell the model how much runway is left, once per mark.
+
+        Deliberately **only the facts**. This does not say "you are probably
+        done", does not suggest the task looks complete, and does not ask the
+        model to wrap up — it reports the turn count and what happens at the
+        ceiling, and leaves the judgement where it belongs.
+
+        That restraint is not politeness, it is the difference between closing
+        an information gap and steering the outcome. In the same run that showed
+        two solved tasks never calling `finish`, a third task called `finish` at
+        turn 19 and had **not** solved it. A nudge that encourages concluding
+        would make that failure more common, and every premature `finish` on a
+        task the model would have solved by turn 30 is a solve thrown away.
+        Finishing early buys tokens, never score: the verifier grades the
+        container either way, which is why both tasks that ran out of turns were
+        still marked solved. So the honest intervention is to hand over a number
+        the model cannot otherwise see and let it decide.
+        """
+        remaining = self.limits.max_turns - turn + 1
+        for mark in sorted(self.limits.budget_notices, reverse=True):
+            # A mark at or above the whole budget would fire on turn 1, which is
+            # noise rather than a warning.
+            if mark >= self.limits.max_turns or mark in announced:
+                continue
+            if remaining > mark:
+                continue
+            announced.add(mark)
+            text = (
+                f"[harness] Turn {turn} of {self.limits.max_turns}; "
+                f"{remaining} remain. At turn {self.limits.max_turns} the run "
+                "stops whether or not you have called `finish`. If the task is "
+                "complete and you have checked it, call `finish`. If it is not, "
+                "spend what is left on the part that matters most."
+            )
+            self._push(
+                EpisodeKind.OBSERVATION, text,
+                message={"role": "user", "content": text},
+            )
+            self._record(
+                "loop.budget_notice",
+                {"turn": turn, "remaining": remaining, "mark": mark},
+                TrustLabel.TRUSTED_LOCAL,
+            )
+            return
+
     # -- steering (M4) --------------------------------------------------------
 
     def _cancel_detail(self) -> str:
@@ -721,6 +793,7 @@ class AgentLoop:
         repeat_streak = 0
         last_digest = ""
         transient_streak = 0
+        announced_marks: set[int] = set()
 
         for turn in range(1, self.limits.max_turns + 1):
             out.turns = turn
@@ -737,6 +810,13 @@ class AgentLoop:
                 out.stop_reason = "cost_ceiling"
                 self._breaker("cost_ceiling", turn, f"${out.usage.cost_usd:.4f}")
                 break
+
+            # Ahead of the compaction check on purpose. The notice is context
+            # like any other; adding it afterwards would let this turn's request
+            # exceed the allowance the plane just finished enforcing. Small,
+            # but this project has four separate findings (M3-13..16) about
+            # numbers that were correct everywhere except where they met.
+            self._budget_notice(turn, announced_marks)
 
             self._compact_if_needed(turn)
 

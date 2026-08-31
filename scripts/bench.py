@@ -34,6 +34,26 @@ DEFAULT_ENV_FILE = ROOT / "state" / "harbor.env"
 DEFAULT_OWNER = ROOT / "state" / "owner.key"
 
 
+def _harbor() -> str:
+    """Where Harbor actually is.
+
+    Was `ROOT/.venv/Scripts/harbor.exe`, which assumes the checkout being run
+    from is the one holding the virtualenv. That is false in a git worktree —
+    the case this was written for, comparing a change against the run it is
+    meant to improve — and false again for a system-wide install. Prefer the
+    venv beside the *running interpreter*, which is true in all three, and fall
+    back to the checkout and then to PATH.
+    """
+    candidates = [
+        Path(sys.executable).parent / ("harbor.exe" if os.name == "nt" else "harbor"),
+        ROOT / ".venv" / "Scripts" / ("harbor.exe" if os.name == "nt" else "harbor"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return "harbor"
+
+
 def _fingerprint_from_owner_key(path: Path) -> str:
     """Derive the expected fingerprint from the operator's own key file.
 
@@ -150,6 +170,11 @@ def main() -> int:
                         help="stretch Harbor's per-task timeouts. Local models "
                              "need this: a 9B doing 30 turns takes far longer "
                              "than a hosted model doing the same work.")
+    parser.add_argument("--include", action="append", default=[], metavar="TASK",
+                        help="run only these tasks, by name; repeatable. The way "
+                             "to re-run the handful a change was meant to affect "
+                             "rather than the whole set, which is what makes a "
+                             "before/after comparison affordable.")
     parser.add_argument("--max-retries", type=int, default=2,
                         help="retries per trial. Defaults to 2 because a trial "
                              "can fail before the agent is ever reached: a "
@@ -198,9 +223,9 @@ def main() -> int:
           f"capped at ${args.max_cost_usd:.2f}/trial\n")
 
     job_name = args.job_name or f"optimus-{args.tasks}x{args.attempts}"
+
     command = [
-        str(ROOT / ".venv" / "Scripts" / "harbor.exe")
-        if os.name == "nt" else "harbor",
+        _harbor(),
         "run",
         "-d", args.dataset,
         "--agent", "optimus.adapters.harbor:OptimusAgent",
@@ -221,6 +246,8 @@ def main() -> int:
         "--ae", f"OPTIMUS_MAX_TURNS={args.max_turns}",
         "--ae", f"OPTIMUS_ENGINES={args.engines}",
     ]
+    for task in args.include:
+        command += ["--include-task-name", task]
     if args.timeout_multiplier != 1.0:
         command += ["--timeout-multiplier", str(args.timeout_multiplier)]
     if args.max_retries:

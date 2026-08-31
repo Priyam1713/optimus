@@ -75,10 +75,11 @@ optimus report jobs/<job-id>
   harness**, which is the line M3 had to cross before a score could mean
   anything.
 - **The economy is the worst number here.** 1.3M tokens per solved task against
-  a 28–37K target, 89.9% of it cache hits. The largest single cause is known and
-  fixable: every solved task ran to the 40-turn ceiling because the model never
-  called `finish`, so a task that was done at turn 12 was billed for 40. Fixing
-  that is worth more than any routing or compaction work currently on the list.
+  a 28–37K target, 89.9% of it cache hits. The largest single cause was that the
+  model was never told its turn budget and so ran to the ceiling on tasks it had
+  already solved. [§ the turn budget](#the-turn-budget) closes the information
+  gap; **whether that actually changes the number is unmeasured** until the
+  affected tasks are re-run, and it is not claimed until then.
 - **Concurrency is untested against a real provider.** Every run so far has been
   one or two trials. `-n 4` and above will interact with rate limits in ways the
   backoff has not been exercised against.
@@ -572,7 +573,7 @@ document in this repo, including this one, predicted `solved=0`.
 
 | task | stopped | turns | tokens | ok/act | solved |
 |---|---|---|---|---|---|
-| largest-eigenval | max_turns | 40 | 396,495 | 37/38 | **yes** |
+| largest-eigenval | finished | 40 | 396,495 | 37/38 | **yes** |
 | log-summary-date-ranges | max_turns | 40 | 430,650 | 40/40 | **yes** |
 | pytorch-model-cli | max_turns | 40 | 371,262 | 32/41 | **yes** |
 | break-filter-js-from-html | finished | 19 | 60,064 | 18/18 | no |
@@ -589,17 +590,24 @@ than scoring somewhere inexplicable.
 
 ### The finding that matters more than the score
 
-**All three solved tasks stopped at `max_turns`, not at `finished`.** The model
-solved the task and then kept going until the turn ceiling, because it never
-recognised it was done. Meanwhile the one run that *did* call `finish` —
+**Two of the three solved tasks never called `finish` at all**, and the third
+called it on turn 40 — the last turn available. `log-summary-date-ranges` and
+`pytorch-model-cli` ran `bash` every turn from 33 to 40 and stopped only because
+the ceiling arrived. Meanwhile the one run that called `finish` early —
 `break-filter-js-from-html`, at turn 19 — was wrong, and had not solved it.
 
-So the model's self-assessment is unreliable in both directions, and the
-harness currently pays for that in full: a solved task burns 40 turns instead of
-the dozen or so it actually needed. That is the single largest contributor to
-`tokens_per_solved_task` being 1.3M against a 28–37K target, and it is a
-*harness* problem, not a model-capability one — which makes it the first
-concrete, measured piece of the apex §4 debt that is actually actionable.
+Reading the ledgers gave the reason, and it is a harness omission rather than a
+model failing: **nothing ever told the model how many turns it had.** Not the
+system prompt, not the conversation. It could not distinguish turn 3 from turn
+39, so there was no point at which concluding became the obvious move.
+
+The cost is the whole of the apex §4 debt. A solved task burns 40 turns instead
+of the dozen it needed, and because prompt size grows every turn the token bill
+grows super-linearly with the waste. It is also worth being precise about what
+finishing early buys: **tokens, never score.** The verifier grades the container
+either way, which is exactly why both tasks that ran out of turns were still
+marked solved. That asymmetry is what makes the fix delicate — see
+[§ the turn budget](#the-turn-budget).
 
 ### Integrity
 
@@ -613,6 +621,42 @@ benchmark process cannot perform, because it is the only thing that touches an
 `unsafe attempts refused 0` and `operator interventions 0` across all ten: the
 grader tripwire never fired and no action was ever parked, so nothing in this
 run needed a human.
+
+## The turn budget
+
+The fix for the finding above, and it is two lines of information rather than a
+mechanism:
+
+1. **The system prompt states the budget** — "you have at most N turns" — which
+   is constant for a run and therefore stays inside the cacheable prefix. One
+   line, once, and cache hits are the only reason a 40-turn run is affordable.
+2. **Notices as the budget runs low**, at 10 and 3 turns remaining by default
+   (`LoopLimits.budget_notices`). Two marks rather than one per turn: forty
+   extra messages would be a real charge against a budget this project spends
+   considerable effort bounding, and the information only changes anything near
+   the end. Each is pushed *before* the compaction check, so it is inside the
+   allowance it is announcing rather than one turn late.
+
+**What the notice deliberately does not do is suggest the model is finished.**
+It reports the turn count and what happens at the ceiling, and stops. The
+restraint is the whole design, because the payoff is asymmetric: finishing early
+buys tokens and never score, while a premature `finish` on a task that would
+have been solved by turn 30 throws away a solve. That failure is not
+hypothetical — `break-filter-js-from-html` called `finish` at turn 19 and had
+not solved it. A notice that nudged toward concluding would make that more
+common and would be trading solves for tokens, which is the wrong direction. So
+the harness hands over a number the model cannot otherwise see, and leaves the
+judgement where it belongs.
+
+**Status: the plumbing is tested, the effect is not.** 14 tests cover when the
+notice fires, that each mark fires once, that a short run never sees one, that
+it does not stop the run by itself, that it stays evictable rather than becoming
+an invariant, and that its wording contains none of the phrases that would be
+steering. None of that shows a real model behaves differently — which is the
+only thing that matters here. That needs `log-summary-date-ranges` and
+`pytorch-model-cli` re-run and compared against 430,650 and 371,262 tokens at 40
+turns each. `bench.py --include <task>` exists now for exactly that comparison.
+Until those numbers land, this is a plausible fix and nothing more.
 
 ## M7 — the Windows check-then-open window, closed
 

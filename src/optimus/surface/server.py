@@ -46,6 +46,10 @@ __all__ = ["SurfaceServer"]
 #: ninety seconds is an idle connection.
 _KEEPALIVE_S = 15.0
 
+#: Ceiling on a request body. Read before the caller is authenticated, so an
+#: unbounded Content-Length from a stranger would be an allocation they chose.
+_MAX_BODY_BYTES = 1 << 20
+
 
 class SurfaceServer:
     """A read-and-steer HTTP surface over one run.
@@ -160,12 +164,31 @@ class SurfaceServer:
                 self.end_headers()
                 self.wfile.write(raw)
 
-            def _body(self) -> dict[str, Any]:
+            def _read_body(self) -> bytes:
+                """Drain the request body, always, before answering.
+
+                Responding to a POST without reading its body makes Windows
+                reset the connection, so the client sees `ConnectionAborted`
+                instead of the status that was actually sent. The 401 path is
+                where this bites: a caller with a bad token got an aborted
+                socket rather than "a bearer token is required", which is a
+                refusal they cannot act on. Read first, decide second.
+
+                Capped, because at the point the body is read the caller has not
+                been authenticated yet, and an unbounded `Content-Length` from an
+                unauthenticated stranger is an allocation they get to choose.
+                """
                 length = int(self.headers.get("Content-Length") or 0)
-                if not length:
+                if length <= 0:
+                    return b""
+                return self.rfile.read(min(length, _MAX_BODY_BYTES))
+
+            @staticmethod
+            def _json_body(raw: bytes) -> dict[str, Any]:
+                if not raw:
                     return {}
                 try:
-                    return json.loads(self.rfile.read(length) or b"{}")
+                    return json.loads(raw)
                 except json.JSONDecodeError:
                     return {}
 
@@ -188,13 +211,14 @@ class SurfaceServer:
 
             def do_POST(self) -> None:
                 route = urlparse(self.path).path
+                raw = self._read_body()
                 if not self._authorized():
                     self._json(401, {"error": "a bearer token is required"})
                     return
                 if outer.control is None:
                     self._json(409, {"error": "this run has no control plane"})
                     return
-                body = self._body()
+                body = self._json_body(raw)
                 if route == "/steer":
                     kind = str(body.get("kind", "guidance")).upper()
                     text = str(body.get("text", "")).strip()
