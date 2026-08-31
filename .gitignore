@@ -1,0 +1,15 @@
+# Credentials and run state. `state/` holds owner keys, envelopes and the
+# provider env-file; none of it belongs in a commit.
+state/
+*.env
+.env
+*.key
+!src/**/*.key
+
+.venv/
+__pycache__/
+*.py[cod]
+
+# Harbor run output
+jobs/
+runs/

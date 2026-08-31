@@ -1,0 +1,87 @@
+# Engines and models available to Optimus.
+#
+# Local-first is enforced in code, not here: `Registry.candidates` excludes any
+# engine with `local = false` unless the caller passes `allow_remote`. Declaring
+# a remote engine is therefore safe — it becomes reachable only when something
+# explicitly opts in, and never by omission.
+#
+# Ported in shape from Achilles's `configs/engines.yaml`. TOML rather than YAML
+# because `tomllib` is standard library and this package's only runtime
+# dependency is a crypto library.
+#
+# Discover what an engine is really serving with `optimus engines --live`; this
+# file is never rewritten automatically, because a manifest that edits itself
+# cannot be reviewed.
+
+# --------------------------------------------------------------------------
+# local
+# --------------------------------------------------------------------------
+
+[[engine]]
+id = "llama_cpp"
+kind = "openai_compatible"
+enabled = true
+local = true
+base_url = "http://127.0.0.1:18080/v1"
+health_url = "http://127.0.0.1:18080/health"
+priority = 10
+timeout_s = 900.0
+notes = """llama.cpp router. Started with --jinja, so OpenAI tool calls work; \
+--sleep-idle-seconds unloads idle models and --fit sizes them to VRAM, which is \
+why Optimus does not run a GPU arbiter of its own above it."""
+
+# Models below are the presets this router already exposes. `context_tokens`
+# mirrors each preset's --ctx-size: routing must not hand a model more context
+# than it was launched with.
+
+[[model]]
+id = "qwen35-9b"
+engine = "llama_cpp"
+context_tokens = 32768
+max_output_tokens = 4096
+supports_tools = true
+priority = 10
+notes = "Q6_K, loaded on startup. The default working model: largest context here."
+
+[[model]]
+id = "qwen38-27b"
+engine = "llama_cpp"
+context_tokens = 16384
+max_output_tokens = 4096
+supports_tools = true
+priority = 20
+notes = "UD-Q4_K_M with a vision projector. Stronger, half the context, loads on demand."
+
+[[model]]
+id = "nemotron35-lightning-30b-a3b"
+engine = "llama_cpp"
+context_tokens = 16384
+max_output_tokens = 4096
+supports_tools = true
+priority = 30
+notes = "MoE, Q4_0, 32 experts on CPU. Loads on demand."
+
+# --------------------------------------------------------------------------
+# remote — declared, and unreachable unless a caller opts in
+# --------------------------------------------------------------------------
+
+[[engine]]
+id = "gemini"
+kind = "openai_compatible"
+enabled = true
+local = false
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key_env = "GEMINI_API_KEY"
+litellm_prefix = "gemini/"
+priority = 200
+notes = """Hosted fallback. Excluded from every route unless allow_remote is set. \
+The free tier allows 20 requests, which is fewer than one Terminal-Bench task \
+needs — see STATUS.md finding M3-10."""
+
+[[model]]
+id = "gemini-3.7-flash"
+engine = "gemini"
+context_tokens = 1000000
+max_output_tokens = 8192
+supports_tools = true
+priority = 10

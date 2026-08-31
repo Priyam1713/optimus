@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "optimus"
+version = "0.0.1"
+description = "The Apex agent harness: one authorization path, one signed ledger, metered everything."
+readme = "apex.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "cryptography>=45",
+]
+
+[project.optional-dependencies]
+sdk = ["openhands-sdk>=1.43"]
+# The loop needs a provider layer and a real tokenizer; litellm carries both.
+# Imported lazily, so the Gate, Ledger and context planes stay dependency-free.
+loop = ["litellm>=1.98"]
+# The Terminal-Bench 2.0 harness. Only `adapters/harbor.py` needs it.
+harbor = ["harbor>=0.22", "litellm>=1.98"]
+dev = ["pytest>=8", "pytest-asyncio>=1"]
+
+[project.scripts]
+optimus = "optimus.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/optimus"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
