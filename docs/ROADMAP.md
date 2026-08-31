@@ -64,17 +64,27 @@ That does not scale to 89 tasks × 5 attempts.
 ## Then: the token ceiling in CI (M4, and the debt from apex §4)
 
 [apex.md](apex.md) §4 sets the target — *within 2× of Goose's 28–37K tokens per
-solved task* — and says a regression should fail the build like a test. That
-cannot be written yet, because **nothing has been solved and there is no
-baseline to regress against.**
+solved task* — and says a regression should fail the build like a test.
 
-Two things unblock it:
+**This is now unblocked.** The ten-task run solved three, so
+`tokens_per_solved_task` is a real number: **1,297,286**, against a ceiling of
+roughly 74K. Missed by about 18×.
 
-- A model that can actually solve some tasks. `qwen38-27b` is already declared
-  in the manifest and unloaded; it is the obvious next rung. A hosted model with
-  billing enabled is the other, and `--allow-remote` already exists for it.
-- Once any task is solved, `tokens_per_solved_task` becomes a real number and
-  the ceiling can be set from it.
+The first bite out of that is already taken and it was embarrassingly cheap:
+telling the model how many turns it has took `log-summary-date-ranges` from
+430,650 tokens over 40 turns to 109,348 over 14, still solved. See
+[STATUS.md § the turn budget](../STATUS.md#the-turn-budget), including the part
+where the elaborate half of that change did nothing and the one-line half did
+all of it.
+
+What remains before a ceiling can go in CI:
+
+- **Re-measure after the turn-budget change**, over more than one attempt per
+  task. One trial is a signal, not a baseline, and a ceiling set from a lucky
+  sample fails the build for the wrong reason.
+- **Decide what the ceiling is a ceiling on.** `tokens_per_solved_task` over a
+  10-task subset moves sharply with *which* tasks get solved, so the metric
+  needs pinning to a fixed task set before it can gate anything.
 
 Until then the honest CI gate is the one that exists: tests, lint, and the
 end-to-end demo.

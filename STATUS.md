@@ -648,15 +648,42 @@ common and would be trading solves for tokens, which is the wrong direction. So
 the harness hands over a number the model cannot otherwise see, and leaves the
 judgement where it belongs.
 
-**Status: the plumbing is tested, the effect is not.** 14 tests cover when the
-notice fires, that each mark fires once, that a short run never sees one, that
-it does not stop the run by itself, that it stays evictable rather than becoming
-an invariant, and that its wording contains none of the phrases that would be
-steering. None of that shows a real model behaves differently — which is the
-only thing that matters here. That needs `log-summary-date-ranges` and
-`pytorch-model-cli` re-run and compared against 430,650 and 371,262 tokens at 40
-turns each. `bench.py --include <task>` exists now for exactly that comparison.
-Until those numbers land, this is a plausible fix and nothing more.
+14 tests cover the plumbing — when a notice fires, that each mark fires once,
+that a short run never sees one, that it does not stop the run by itself, that
+it stays evictable rather than becoming an invariant, and that its wording
+contains none of the phrases that would be steering. None of that shows a real
+model behaves differently, which is the only thing that matters, so the affected
+tasks were re-run (`bench.py --include <task>`, added for this).
+
+### Measured, and not by the mechanism anyone expected
+
+`log-summary-date-ranges`, the same task, the same model, one attempt each:
+
+| | before | after |
+|---|---|---|
+| stopped | `max_turns` | **`finished` at turn 14** |
+| turns | 40 | 14 |
+| tokens | 430,650 | **109,348** |
+| solved | yes | **yes** |
+
+**A 75% reduction in tokens, with the task still solved.** And the notices had
+nothing to do with it: `loop.budget_notice` rows for that trial are *empty*. The
+run ended at turn 14, and the first mark would not have fired until turn 31. The
+entire effect came from the single static line in the system prompt saying the
+budget exists.
+
+That is worth sitting with, because it says something about where the remaining
+economy is. The model was not incapable of concluding and was not ignoring a
+signal — it had simply never been told the run was bounded, and one sentence of
+context was worth 321,302 tokens on this task. The running notices are not
+therefore useless: they are the backstop for tasks that genuinely need all forty
+turns, which is seven of the ten in the last run. But on this evidence the cheap
+half did the work.
+
+**The honest caveat: n=1 per task, and a local model samples stochastically.**
+One trial is a strong signal and not a measurement. `-k 5` on the affected tasks
+is what would turn it into one, and nothing here should be quoted as a
+before/after for the suite until that exists.
 
 ## M7 — the Windows check-then-open window, closed
 
