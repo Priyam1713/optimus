@@ -17,6 +17,8 @@ package whose only runtime dependency is a crypto library.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -184,6 +186,111 @@ def cmd_engines(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_acp(args: argparse.Namespace) -> int:
+    """Serve the Agent Client Protocol on stdio, for an editor to launch.
+
+    This is the interactive counterpart to a benchmark run, and the difference
+    that matters is authorisation. Under Harbor there is no human, so the
+    autonomy envelope clears the untrusted-mutation invariant in advance. Here
+    there *is* a human sitting in an editor, and ACP has a round trip to ask
+    them — so the default is **no envelope at all**: the Gate parks, the editor
+    asks, and the assent names what the person was actually shown. That is
+    strictly stronger than agreeing to a scope in advance.
+
+    `--envelope` is still accepted, for an editor session meant to run
+    unattended within a bounded scope. It is not the default, because "there is
+    nobody there" should need an explicit argument rather than be inherited from
+    the benchmark path.
+    """
+    from .context.window import ContextBudget, ContextWindow
+    from .gate.gate import Gate
+    from .gate.policy import baseline_policy
+    from .gate.resolvers import WorkspaceResolver
+    from .ledger.store import DurableChain, LedgerStore
+    from .loop.agent import AgentLoop, LoopLimits
+    from .loop.llm import token_counter_for
+    from .loop.router import RoutedLLM
+    from .surface.acp import ACPServer
+    from .tools.std import GatedTools
+    from .venues.local import LocalVenue
+
+    workspace = os.path.abspath(args.workspace)
+    if not os.path.isdir(workspace):
+        print(f"no such workspace: {workspace}", file=sys.stderr)
+        return 2
+    if args.envelope and not args.owner_fingerprint:
+        # The fingerprint has to arrive from somewhere the document does not
+        # control. Reading it back out of the envelope would make the check
+        # circular, which is the whole failure `verify()` exists to prevent.
+        print(
+            "--envelope needs --owner-fingerprint, and it must come from your "
+            "own key rather than from the envelope file",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        registry = Registry.load(args.config)
+    except ConfigError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
+    state_dir = Path(args.state)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    store = LedgerStore(state_dir / "acp-ledger.db")
+
+    def run_factory(session_id: str, text: str, bus, control):
+        def run():
+            gate = Gate(
+                DurableChain(
+                    AgentKey.load_or_create(state_dir / "agent.key"), store
+                ),
+                # Not `benchmark_policy()`. That one has no approval rules at
+                # all, because under Harbor there is nobody to approve. Here
+                # `baseline_policy` stages writes and approves execution, and
+                # every one of those parked tickets is a question ACP can put
+                # to the person in the editor.
+                baseline_policy(),
+                WorkspaceResolver(workspace),
+                run_id=session_id,
+            )
+            if args.envelope:
+                _open_envelope_file(gate, args.envelope, args.owner_fingerprint)
+            llm = RoutedLLM(registry, allow_remote=args.allow_remote)
+            window = ContextWindow(
+                ContextBudget(
+                    total=args.context, reserve_output=2_048, keep_recent=6
+                ),
+                count_tokens=token_counter_for(llm.model),
+            )
+            return AgentLoop(
+                gate=gate,
+                tools=GatedTools(gate=gate, venues=[LocalVenue()]),
+                window=window,
+                llm=llm,
+                limits=LoopLimits(max_turns=args.max_turns),
+                run_id=session_id,
+                bus=bus,
+                control=control,
+            ).run(text)
+        return run
+
+    try:
+        ACPServer(run_factory=run_factory).serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        store.close()
+    return 0
+
+
+def _open_envelope_file(gate, path: str, owner_fingerprint: str) -> None:
+    from .gate.envelope import Envelope
+
+    envelope = Envelope.from_dict(json.loads(Path(path).read_text()))
+    gate.open_envelope(envelope, owner_fingerprint=owner_fingerprint)
+
+
 def cmd_why(args: argparse.Namespace) -> int:
     """Explain a trial, or a whole job, from its ledger.
 
@@ -346,6 +453,27 @@ def build_parser() -> argparse.ArgumentParser:
     wy.add_argument("--no-timeline", action="store_true",
                     help="skip the per-turn prompt-size chart")
     wy.set_defaults(func=cmd_why)
+
+    ac = sub.add_parser(
+        "acp", help="serve the Agent Client Protocol on stdio, so an editor "
+                    "(Zed, JetBrains) can drive this agent"
+    )
+    ac.add_argument("--workspace", default=".",
+                    help="the root the agent may act in; everything outside is refused")
+    ac.add_argument("--state", default="state",
+                    help="where the session ledger and agent key live")
+    ac.add_argument("--config", default="configs/engines.toml")
+    ac.add_argument("--allow-remote", action="store_true",
+                    help="permit hosted engines. Off by default; local-first.")
+    ac.add_argument("--context", type=int, default=32_768)
+    ac.add_argument("--max-turns", type=int, default=40)
+    ac.add_argument("--envelope", default="",
+                    help="run unattended within a signed scope. Off by default: "
+                         "an editor has a human in it, and ACP can ask them.")
+    ac.add_argument("--owner-fingerprint", default="",
+                    help="required with --envelope, and it must come from your "
+                         "own key rather than from the envelope file")
+    ac.set_defaults(func=cmd_acp)
 
     rp = sub.add_parser(
         "report", help="pass^k, tokens per solved task and refusals from a Harbor run"

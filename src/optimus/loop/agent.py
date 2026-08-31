@@ -49,8 +49,23 @@ from ..context.episodes import Episode, EpisodeKind
 from ..context.window import CompactionRefused, ContextWindow
 from ..gate.gate import Gate
 from ..ledger.events import Meter, TrustLabel
+from ..surface.control import Control, SteerKind
+from ..surface.events import Bus, EventKind
 from ..tools.budget import ToolBudgetPolicy, ToolSpec
 from .llm import LLM, ModelReply, ToolCall, Usage
+
+#: Ledger row kind -> bus event kind, for the rows a surface can render. A row
+#: absent from this map is written to the ledger and not published, which is the
+#: right default: the ledger is the record, and the bus is a view of the parts
+#: of it someone is watching.
+_BUS_KINDS: dict[str, EventKind] = {
+    "run.started": EventKind.RUN_STARTED,
+    "run.finished": EventKind.RUN_FINISHED,
+    "model.call": EventKind.MODEL_CALL,
+    "context.turn": EventKind.CONTEXT_TURN,
+    "context.compacted": EventKind.CONTEXT_COMPACTED,
+    "loop.breaker": EventKind.BREAKER,
+}
 
 #: Ceiling on the estimator correction. Beyond this something is wrong with
 #: the estimator itself rather than with the tokenizer, and silently
@@ -352,6 +367,8 @@ class AgentLoop:
         system_prompt: str = SYSTEM_PROMPT,
         invariants: Sequence[str] = DEFAULT_INVARIANTS,
         stop: threading.Event | None = None,
+        bus: Bus | None = None,
+        control: Control | None = None,
     ):
         self.gate = gate
         self.tools = tools
@@ -361,13 +378,24 @@ class AgentLoop:
         self.run_id = run_id or gate.run_id or "run"
         self.system_prompt = system_prompt
         self.invariants = tuple(invariants)
+        # M4. Both optional, and both cheap when nobody is attached: a benchmark
+        # trial has nobody watching and nobody steering, and must not pay for
+        # the possibility that someone might be.
+        self.control = control
+        self.bus = bus or Bus(run_id=self.run_id)
         # Cooperative cancellation. The loop runs in a worker thread under the
         # Harbor adapter, and `asyncio.to_thread` cannot be cancelled — so
         # without this the loop keeps driving a GPU long after the harness that
         # started it has given up on the trial and moved on. A real run did
         # exactly that: Harbor recorded a timeout at 900s and the loop carried
         # on to its own 1800s ceiling.
-        self.stop = stop or threading.Event()
+        #
+        # A `Control` supplies this Event when one is not passed explicitly,
+        # which is the whole of "a cancellation path that does not depend on the
+        # adapter": the adapter still sets a bare Event, and a TUI, an HTTP
+        # client or an ACP editor now sets the same bit through `Control`. One
+        # bit, several doors — not a second mechanism that can disagree.
+        self.stop = stop or (control.stop if control else None) or threading.Event()
         self._overhead: int | None = None
         #: Ratio between what the provider says a prompt cost and what this
         #: process estimated. Starts honest-but-blind at 1.0 and is corrected
@@ -491,6 +519,25 @@ class AgentLoop:
         self.gate.chain.append(
             kind, {**payload, "run_id": self.run_id}, trust
         )
+        # And mirror it onto the bus, from the one place that writes the ledger.
+        #
+        # This is deliberately not a second set of publish calls scattered
+        # through the run. Two renderers that each derive "what happened" from
+        # their own reading of the loop is exactly how the same trial came to
+        # report 40 turns in one view and 41 in another. Here a live surface and
+        # a post-hoc `optimus why` are reading the same row, under the same
+        # name, and there is no arithmetic in between for them to disagree on.
+        event_kind = _BUS_KINDS.get(kind)
+        if event_kind is not None:
+            # `turn` is lifted out of the payload rather than duplicated into
+            # it: the event addresses a turn, and the payload describes what
+            # happened in it. Leaving it in both places is two fields that can
+            # drift apart, which is the whole failure this mirror exists to
+            # avoid, reintroduced one level down.
+            rest = {k: v for k, v in payload.items() if k != "turn"}
+            self.bus.publish(
+                event_kind, turn=int(payload.get("turn") or 0), payload=rest
+            )
 
     def _record_model_call(self, turn: int, reply: ModelReply) -> None:
         """The one row that makes tokens-per-solved-task a measurement.
@@ -565,6 +612,59 @@ class AgentLoop:
             TrustLabel.TRUSTED_LOCAL,
         )
 
+    # -- steering (M4) --------------------------------------------------------
+
+    def _cancel_detail(self) -> str:
+        """Who stopped this, and why, when anyone said."""
+        if self.control and self.control.cancel_reason:
+            return self.control.cancel_reason
+        return "the harness asked the loop to stop"
+
+    def _absorb_steers(self, turn: int) -> None:
+        """Read what an operator sent, and put it in front of the model.
+
+        A steer enters the window as an ordinary `OBSERVATION` episode carrying
+        a `user` message, which means it is budgeted, compactable and auditable
+        by exactly the machinery that already handles everything else. It is
+        emphatically *not* an invariant: an operator's mid-run aside is not a
+        standing rule, and quietly promoting it to one would make a typo
+        uncompactable for the rest of the run.
+
+        The trust label is the interesting part. A steer arrives over a socket
+        from a surface, so it is not `TRUSTED_LOCAL`, but it is a human's words
+        and not the model's, so it is not `UNTRUSTED_MODEL_OUTPUT` either. It is
+        `TRUSTED_USER` — the same label the original instruction carries, which
+        is what it actually is: more instruction, arriving late.
+        """
+        if self.control is None:
+            return
+        steers = self.control.drain()
+        if not steers:
+            return
+        for steer in steers:
+            if steer.kind is SteerKind.CANCEL:
+                # The stop bit is already set; nothing to inject.
+                continue
+            message = steer.as_message()
+            self._push(
+                EpisodeKind.OBSERVATION,
+                message["content"],
+                message=message,
+            )
+            self._record(
+                "loop.steer",
+                {
+                    "turn": turn,
+                    "kind": steer.kind.name.lower(),
+                    "source": steer.source,
+                    "text": steer.text[:2_000],
+                },
+                TrustLabel.TRUSTED_USER,
+            )
+            self.bus.publish(
+                EventKind.STEERED, turn=turn, payload=steer.as_dict()
+            )
+
     # -- the run --------------------------------------------------------------
 
     def run(self, instruction: str, *, environment: str = "") -> RunOutcome:
@@ -626,7 +726,7 @@ class AgentLoop:
             out.turns = turn
             if self.stop.is_set():
                 out.stop_reason = "cancelled"
-                self._breaker("cancelled", turn, "the harness asked the loop to stop")
+                self._breaker("cancelled", turn, self._cancel_detail())
                 break
             elapsed = time.monotonic() - started
             if elapsed > self.limits.max_wall_s:
@@ -640,6 +740,17 @@ class AgentLoop:
 
             self._compact_if_needed(turn)
 
+            # Anything an operator sent while the last turn was in flight is
+            # read here, at the boundary, before the model is asked anything.
+            # A correction that arrives during turn 12 is acted on in turn 13,
+            # which is the earliest point at which acting on it is coherent.
+            self._absorb_steers(turn)
+            if self.stop.is_set():
+                out.stop_reason = "cancelled"
+                self._breaker("cancelled", turn, self._cancel_detail())
+                break
+
+            self.bus.publish(EventKind.TURN_STARTED, turn=turn)
             record = TurnRecord(turn=turn, timestamp=_now_iso())
             self._last_estimate = self._raw_prompt_tokens()
             self._record_context(turn)
@@ -757,6 +868,11 @@ class AgentLoop:
                     )
                     continue
 
+                self.bus.publish(
+                    EventKind.TOOL_CALL, turn=turn,
+                    call_id=call.call_id, name=call.name,
+                    brief=_brief(call.arguments),
+                )
                 result = self._dispatch(call)
                 text = clamp(_observation_text(result), self.limits.observation_chars)
                 record.results.append((call.call_id, text))
@@ -765,8 +881,32 @@ class AgentLoop:
                     denial_streak += 1
                     if result.get("verdict") == "needs_approval":
                         out.approvals_required += 1
+                    # A parked action and a refused one look identical to the
+                    # loop — both come back as an observation and the run
+                    # continues. They are not identical to a *surface*: one of
+                    # them is a question somebody could answer. ACP has a
+                    # round trip for exactly this.
+                    self.bus.publish(
+                        EventKind.GATE_PARKED
+                        if result.get("verdict") == "needs_approval"
+                        else EventKind.GATE_DENIED,
+                        turn=turn,
+                        call_id=call.call_id, name=call.name,
+                        verdict=result.get("verdict", ""),
+                        reason=result.get("reason", "") or text[:500],
+                    )
                 else:
                     denial_streak = 0
+                self.bus.publish(
+                    EventKind.TOOL_RESULT, turn=turn,
+                    call_id=call.call_id, name=call.name,
+                    denied=bool(result.get("denied")),
+                    exit_code=result.get("exit_code"),
+                    # Clamped hard: a surface renders a preview and reads the
+                    # ledger for the rest. The bus is not a transport for a
+                    # 6,000-character build log times four subscribers.
+                    preview=text[:1_000],
+                )
                 kind = (
                     EpisodeKind.ERROR
                     if result.get("denied") or result.get("error")
@@ -819,6 +959,13 @@ class AgentLoop:
                 break
 
             out.steps.append(record)
+            self.bus.publish(
+                EventKind.TURN_FINISHED, turn=turn,
+                tool_calls=len(record.calls),
+                breaker=record.breaker,
+                tokens=record.usage.total_tokens,
+                cost_usd=out.usage.cost_usd,
+            )
             if finished:
                 out.stop_reason = "finished"
                 break

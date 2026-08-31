@@ -79,17 +79,30 @@ Two things unblock it:
 Until then the honest CI gate is the one that exists: tests, lint, and the
 end-to-end demo.
 
-## Also M4: surfaces
+## ~~Also M4: surfaces~~ — largely done
 
-TUI and web over the REST/WS core, priority-queue steering, confidence
-signalling, pre-flight dry-run, ACP client, AG-UI emitter. Plus two items the
-runs promoted from "nice" to "needed":
+See [STATUS.md § M4](../STATUS.md#m4--surfaces-partial). The event bus, the
+steering plane, the ACP agent, the AG-UI emitter, REST+SSE, a terminal view and
+the pre-flight dry-run are built, with 381 tests.
 
-- **Per-turn `AgentContext` streaming.** Currently populated at run end; a
-  killed trial is rebuilt from the ledger afterwards, which works but means
-  Harbor's live view shows nothing until the trial is over.
-- **A cancellation path that does not depend on the adapter.** The loop takes a
-  stop Event now, but only the Harbor adapter sets it.
+Both items the runs had promoted from "nice" to "needed" are closed:
+
+- ~~**Per-turn `AgentContext` streaming.**~~ The loop publishes every turn as it
+  happens, mirrored from the single point that writes the ledger so that a live
+  view and `optimus why` cannot disagree about what happened.
+- ~~**A cancellation path that does not depend on the adapter.**~~ `Control`
+  owns the `threading.Event` the loop already polls. A TUI, an HTTP client and
+  an editor's stop button all set the same bit; the Harbor adapter is unchanged.
+
+Still open, deliberately:
+
+- **WebSocket.** SSE is what shipped, and the documents say SSE. Revisit only if
+  a client turns up that genuinely cannot use it — the cost is a web-framework
+  dependency in a project whose entire runtime dependency is `cryptography`.
+- **ACP v2.** v1 is implemented and a v2 client is negotiated down honestly. v2
+  moves turn completion out of `session/prompt`, which is a real restructuring
+  of the adapter rather than a field rename.
+- **A web frontend.** Any AG-UI client can already consume the stream.
 
 ## Deferred, with the reason
 

@@ -9,7 +9,7 @@ Design: [research.md](docs/research.md) (field) → [audit.md](docs/audit.md) (p
 
 ```bash
 .venv/Scripts/python.exe -m pip install -e ".[loop,harbor]"
-.venv/Scripts/python.exe -m pytest -q          # 262 passed, 2 skipped
+.venv/Scripts/python.exe -m pytest -q          # 381 passed, 2 skipped
 .venv/Scripts/python.exe scripts/context_profile.py
 .venv/Scripts/python.exe scripts/m3_demo.py    # the whole path, end to end
 optimus status --ledger state/ledger.db
@@ -95,7 +95,13 @@ optimus report jobs/<job-id>
   message-pairing repair in `AgentLoop.messages` is tested directly; what has not
   happened is a 60-turn run where several compactions land mid-trajectory against
   a live provider that will reject a malformed tool-call sequence.
-- No surfaces, no skills/Descent, no OS plane.
+- **Surfaces exist but no web frontend does.** [§ M4](#m4--surfaces-partial) has
+  the event bus, steering, ACP, AG-UI, REST+SSE, a terminal view and a
+  pre-flight. What is deliberately absent: WebSocket (SSE instead, and named as
+  such), ACP v2 (v1, negotiated), and any bundled UI — the AG-UI stream is what
+  a frontend would consume and any AG-UI client already can.
+- No skills/Descent, no OS plane. M5 needs a task that gets solved before
+  "cost falls across runs" can be measured at all.
 - **Residual TOCTOU on Windows.** File identity is pinned at resolve and
   re-checked at open, and POSIX adds `O_NOFOLLOW` — but Windows has no `dir_fd`
   and no `O_NOFOLLOW`, so a microsecond window remains between the check and the
@@ -530,10 +536,134 @@ corrected, and the shape of the published row is real. **The pass rate is
 meaningless — one scripted trial.** Replace the model and the dataset and the
 same code prints the row that counts.
 
+## M4 — surfaces, partial
+
+Everything M4 needs turned out to hang off one primitive the loop did not have:
+a per-turn event stream. The loop was built to be driven by a benchmark harness,
+which wants one trajectory, once, at the end. Every other way of using an agent
+wants the opposite — the turn happening now, and a way to change its mind before
+the next one. So `surface/` adds exactly two things and makes everything else a
+projection of them.
+
+| Built | Where | Notes |
+|---|---|---|
+| `Bus` — publish/subscribe, never blocks the loop, drops **visibly** | `surface/events.py` | bounded per subscriber; a monotonic `seq` makes a gap arithmetic rather than a guess |
+| `Control` — priority-queue steering, interrupt, cancel | `surface/control.py` | owns the `threading.Event` the loop already polls, so the Harbor adapter is unchanged |
+| Loop integration | `loop/agent.py` | mirrors the bus **from the single point that writes the ledger** |
+| AG-UI emitter | `surface/agui.py` | checked against the protocol's own wire values, not its prose tables |
+| ACP agent over stdio | `surface/acp.py`, `optimus acp` | v1, negotiated honestly; `session/request_permission` wired to the Gate |
+| REST + SSE | `surface/server.py` | loopback-only and token-gated by default |
+| Terminal view | `surface/tui.py` | ANSI, not `curses` — which is not in the Windows stdlib |
+| Pre-flight dry-run | `surface/dryrun.py` | runs against a *shadow* Gate, so a preview costs nothing |
+
+**381 tests, 2 skipped. Ruff clean.** `optimus acp` handshakes over real pipes:
+`initialize` → `session/new` → a proper `-32601` for an unknown method.
+
+The bus mirror is the design decision worth defending. Publishing from
+`_record` — the one function that writes the ledger — rather than from a dozen
+call sites means a live surface and a post-hoc `optimus why` are reading the
+same row under the same name. The worst class of bug in M3 was two renderers
+each deriving "what happened" from their own reading, and the same trial
+reporting 40 turns in one view and 41 in the other. This makes that particular
+disagreement unrepresentable rather than merely absent.
+
+**The bus is lossy and the ledger is not.** A subscriber that cannot keep up
+loses events, deliberately: a terminal must never be able to slow the loop, and
+the alternative to dropping is back-pressure that does exactly that. What it
+will not do is lose them quietly — every subscription counts its own drops, and
+the TUI prints the count rather than showing a gap-free-looking picture.
+
+### Not built, and named rather than glossed
+
+- **SSE, not WebSocket.** apex §7 says "REST/WS core". Hand-rolling RFC 6455 to
+  earn the letter would be a rebuild of a solved thing; adding an ASGI stack
+  would make a project whose entire runtime dependency is `cryptography` need a
+  web framework. SSE is AG-UI's own default transport and costs nothing. So the
+  document says SSE (house rule 5).
+- **ACP v1, not v2.** v2 is a substantial redesign — `session/prompt` no longer
+  signals turn completion, `fs/*` and `terminal/*` are gone. A client asking for
+  v2 is answered `protocolVersion: 1` and decides for itself. v1-only agents are
+  expected to stay common for some time, and a half-v2 that fails inside an
+  editor is worse than an honest v1.
+- **No web frontend.** The AG-UI stream is what one would consume, and any
+  AG-UI client can already consume it. Writing one is not the bottleneck.
+- **`allow_always` is offered and not remembered.** ACP defines the option and
+  editors display it. Honouring it would mean this process deciding that some
+  future action needs no human, which is the invariant the Gate exists to hold.
+  It is treated as `allow_once` and the downgrade is recorded rather than
+  dropped.
+- **The token ceiling in CI is still blocked**, for the same reason as before:
+  nothing has been solved, so `tokens_per_solved_task` is `inf` and there is no
+  baseline to regress against.
+
+### Findings from building it
+
+24. **M4-1 — a payload whose keys are data met a signature whose keys are
+    structure.** The bus mirror splatted ledger payloads as `**kwargs` into
+    `publish(kind, *, turn, ...)`. Ledger payloads are arbitrary dicts:
+    `loop.breaker` rows carry their own `kind`, and every row carries `turn`. So
+    the first breaker of the first stalled run raised `TypeError` — on a path no
+    happy-path test takes. Fixed structurally, by taking the payload as a dict
+    rather than as keywords. Same family as M3-13..16: two things each correct
+    in their own frame, wrong where they met.
+
+25. **M4-2 — handling `session/prompt` on the reader thread deadlocks the
+    permission round trip.** `session/prompt` blocks for a whole run.
+    `session/request_permission` is an outbound request made *from* the turn,
+    whose reply arrives on the reader thread. Handle the prompt inline and the
+    turn waits for a message only the thread it is blocking could read. The same
+    bug meant `session/cancel` was not read until the run it was meant to cancel
+    had already finished — a stop button that starts working once it is
+    pointless. Both need a parked action or a cancel *during* a live prompt to
+    appear at all, so neither shows up in a test that drives one method at a
+    time. Requests now run on their own threads, and a regression test answers a
+    permission request mid-turn over real pipes.
+
+26. **M4-3 — the end-of-stream sentinel was dropped for exactly the subscriber
+    that needed it.** `close()` delivered it with `put_nowait`, which fails when
+    the queue is full — and a full queue is precisely the subscriber that fell
+    behind. Its consumer then blocked forever on a `get()` nothing would answer:
+    a thread hung for the life of the process, on the slow surface the drop
+    policy exists to tolerate. The sentinel now evicts to make room. A drop
+    policy has to have an exception for the message that says there will be no
+    more messages.
+
+27. **M4-4 — `stop()` on a server that was never started hung forever.**
+    `BaseServer.shutdown()` waits for `serve_forever()` to acknowledge, and
+    `serve_forever()` is what would set that flag. Binding in `__init__` and
+    serving in `start()` is what makes it reachable, and that split is worth
+    keeping — the port has to be known before the run starts so it can be
+    printed — so `stop()` is idempotent and start-aware instead.
+
+28. **M4-5 — AG-UI's documentation tables name the TypeScript classes, not the
+    wire values.** The tables say `RunStarted` and `TextMessageStart`; the `type`
+    discriminator carries `RUN_STARTED` and `TEXT_MESSAGE_START`. An emitter
+    written from the tables passes every test that asserts against itself and is
+    rejected by every real client. Reading the SDK's own enum took one request,
+    and was the difference between a working emitter and a plausible one.
+
+29. **M4-6 — a benchmark policy has no approval rules, and an editor needs
+    them.** `benchmark_policy()` deliberately contains none: under Harbor there
+    is nobody to approve, so a parked ticket is only a slower refusal. `optimus
+    acp` uses `baseline_policy()`, which stages writes and approves execution —
+    and every one of those parked tickets becomes a question ACP puts to the
+    person in the editor. Same Gate, same invariant, and **no envelope needed at
+    all** when there is a human in the room: the assent then names what they
+    were actually shown rather than a scope agreed in advance. That is the first
+    place in this project where the interactive story is the *stronger* one.
+
 ## Next
 
-M4: surfaces. TUI and web over the REST/WS core, priority-queue steering,
-confidence signalling, pre-flight dry-run, ACP client, AG-UI emitter — plus the
-per-turn callback that lets `AgentContext` survive a killed trial, and the
-tokens-per-solved-task ceiling enforced in CI, which [apex.md](docs/apex.md) §4 puts
-at M4 and which cannot be written until a real Harbor run has produced a baseline.
+**M5–M7 are not started.** In the order the evidence says to do them:
+
+- **M5 — skills and graduation.** Done when a repeated task's cost falls
+  measurably across runs. That needs tasks that get solved, so it is blocked
+  behind the same thing as the token ceiling.
+- **M6 — the OS/desktop plane.** [architecture.md](docs/architecture.md) puts
+  the Agent Workspace feasibility spike first, and nothing here changes that.
+- **M7 — multiplayer, durability, OS-level policy enforcement**, and the
+  `NtCreateFile` work that closes the residual Windows TOCTOU window.
+
+The nearest useful work remains a model that can solve something. `qwen38-27b`
+is declared and unloaded; until *something* is solved, `tokens_per_solved_task`
+is `inf` and the CI ceiling from [apex.md](docs/apex.md) §4 cannot be written.
