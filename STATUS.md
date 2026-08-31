@@ -655,35 +655,43 @@ contains none of the phrases that would be steering. None of that shows a real
 model behaves differently, which is the only thing that matters, so the affected
 tasks were re-run (`bench.py --include <task>`, added for this).
 
-### Measured, and not by the mechanism anyone expected
+### Measured: one task transformed, one task worse. Inconclusive.
 
-`log-summary-date-ranges`, the same task, the same model, one attempt each:
+Both affected tasks re-run, same model, one attempt each:
 
-| | before | after |
+| task | before | after |
 |---|---|---|
-| stopped | `max_turns` | **`finished` at turn 14** |
-| turns | 40 | 14 |
-| tokens | 430,650 | **109,348** |
-| solved | yes | **yes** |
+| `log-summary-date-ranges` | 40 turns, 430,650 tokens, **solved** | **14 turns, 109,348 tokens, solved** |
+| `pytorch-model-cli` | 40 turns, 371,262 tokens, **solved** | 40 turns, 531,501 tokens, **not solved** |
 
-**A 75% reduction in tokens, with the task still solved.** And the notices had
-nothing to do with it: `loop.budget_notice` rows for that trial are *empty*. The
-run ended at turn 14, and the first mark would not have fired until turn 31. The
-entire effect came from the single static line in the system prompt saying the
-budget exists.
+The first is exactly what the change was for, and the mechanism is not the one
+that was built. `loop.budget_notice` rows for that trial are **empty** — the run
+ended at turn 14 and the first mark would not have fired until 31. The whole
+effect came from the single static line in the system prompt saying the budget
+exists. One sentence, 321,302 tokens.
 
-That is worth sitting with, because it says something about where the remaining
-economy is. The model was not incapable of concluding and was not ignoring a
-signal — it had simply never been told the run was bounded, and one sentence of
-context was worth 321,302 tokens on this task. The running notices are not
-therefore useless: they are the backstop for tasks that genuinely need all forty
-turns, which is seven of the ten in the last run. But on this evidence the cheap
-half did the work.
+The second is the honest half. It behaved as though the change were not there:
+still 40 turns, still no `finish`, **both notices fired and were ignored** (turn
+31 and turn 38), 43% *more* tokens, and the solve lost. Whatever happened there,
+it is not the failure mode that was feared — a nudge talking the model into
+stopping early — because the model never stopped early. The trajectory simply
+diverged and went worse.
 
-**The honest caveat: n=1 per task, and a local model samples stochastically.**
-One trial is a strong signal and not a measurement. `-k 5` on the affected tasks
-is what would turn it into one, and nothing here should be quoted as a
-before/after for the suite until that exists.
+**So: one trial each, one large win, one loss, and no way to separate the change
+from run-to-run variance.** A local model samples stochastically and
+Terminal-Bench rewards are binary, so a single trial per arm cannot distinguish
+"this helped" from "this task is near its threshold and flipped". The 43% token
+increase is trajectory divergence rather than notice overhead — two notices are
+about 60 tokens each and cannot account for 160,239 of them.
+
+This was written down as a caveat before the second trial landed, and the second
+trial is why the caveat exists. **Nothing here is a before/after for the suite.**
+What would make it one is `-k 5` on the affected tasks, which is now cheap:
+`bench.py --include <task> --attempts 5`.
+
+The change stays in on the argument that it closes a genuine information gap the
+ledgers showed — the model could not see its own budget — and not on the
+strength of this evidence, which does not support a claim either way.
 
 ## M7 — the Windows check-then-open window, closed
 

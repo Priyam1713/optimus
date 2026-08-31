@@ -70,12 +70,13 @@ solved task* — and says a regression should fail the build like a test.
 `tokens_per_solved_task` is a real number: **1,297,286**, against a ceiling of
 roughly 74K. Missed by about 18×.
 
-The first bite out of that is already taken and it was embarrassingly cheap:
-telling the model how many turns it has took `log-summary-date-ranges` from
-430,650 tokens over 40 turns to 109,348 over 14, still solved. See
+A first attempt at biting into it — telling the model how many turns it has —
+produced one task at 430,650 tokens → 109,348, still solved, and one task that
+ignored the change entirely and lost its solve. One trial each, so the two
+results cancel rather than average. See
 [STATUS.md § the turn budget](../STATUS.md#the-turn-budget), including the part
-where the elaborate half of that change did nothing and the one-line half did
-all of it.
+where the elaborate half of the change did nothing and the one-line half did all
+of the good result.
 
 What remains before a ceiling can go in CI:
 
